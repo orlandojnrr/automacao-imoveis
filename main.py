@@ -1,31 +1,29 @@
+import os
 import time
 import threading
-import os
-from flask import Flask
+from flask import Flask, request, jsonify
 import google.generativeai as genai
+
+# Força o SDK do Google a usar a rota v1 estável globalmente
+os.environ["GOOGLE_API_VERSION"] = "v1"
 
 app = Flask(__name__)
 
-# Configura a IA do Gemini usando a chave secreta que você salvou no Render
-# Se você testar localmente no PC, ele vai ignorar se não achar a variável, por isso usamos o os.environ.get
+# Configura a IA do Gemini usando a chave secreta vinda do ambiente (Render)
 api_key = os.environ.get("GEMINI_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
-    # FORÇA O SDK A USAR A API ESTÁVEL V1 (Evita o erro 404 da v1beta)
-    os.environ["慶_API_VERSION"] = "v1"  # Truque para o core do Google API
+else:
+    print("[AVISO] Chave GEMINI_API_KEY não encontrada nas variáveis de ambiente.")
 
-@app.route('/')
-def home():
-    return "Robô Ativo com Cérebro Gemini!", 200
-
-# Aqui é onde o cérebro da IA processa a mensagem do cliente
 def responder_com_gemini(mensagem_cliente):
     try:
-        # Agora com a API certa, o 1.5-flash vai rodar liso
+        # Inicializa o modelo padrão atual na API v1 estável
         model = genai.GenerativeModel('gemini-1.5-flash')
         
+        # Prompt de orientação para o comportamento do corretor de imóveis
         prompt_sistema = (
-            "Você é uma corretora de imóveis profissional, muito educada e prestativa. "
+            "Você é um corretor de imóveis profissional, muito educado e prestativo. "
             "Sua missão é responder à mensagem do cliente abaixo, tentando entender melhor o que ele precisa "
             "(como localização, quantidade de quartos e orçamento) e agendar uma visita ou ligação. "
             "Responda de forma natural, humanizada e use emojis moderadamente.\n\n"
@@ -37,37 +35,54 @@ def responder_com_gemini(mensagem_cliente):
     except Exception as e:
         return f"Erro ao chamar a API do Gemini: {e}"
 
-# O coração do seu robô em segundo plano
-def loop_do_robo():
-    print("--- SISTEMA DE AUTOMAÇÃO IMOBILIÁRIA ATIVO ---")
-    print("Aguardando novas mensagens de leads do WhatsApp...")
-    
-    # Simulação de um cliente que acabou de chegar do WhatsApp
-    cliente_simulado = "Mariana"
-    mensagem_simulada = "Olá, gostaria de saber se vocês têm alguma casa de 3 quartos disponível para alugar perto do centro."
-    
-    # O robô vai processar essa mensagem logo no primeiro ciclo
-    primeiro_ciclo = True
-    
-    while True:
-        if primeiro_ciclo:
-            print(f"\n[WHATSAPP] Nova mensagem recebida de {cliente_simulado}!")
-            print(f"[WHATSAPP] Texto: '{mensagem_simulada}'")
-            print("[IA] Pensando na melhor resposta com o Gemini...")
-            
-            # Chama o cérebro da Inteligência Artificial
-            resposta_da_ia = responder_com_gemini(mensagem_simulada)
-            
-            print("\n==================================================")
-            print(f"[IA RESPOSTA PARA {cliente_simulado.upper()}]:")
-            print(resposta_da_ia)
-            print("==================================================\n")
-            
-            primeiro_ciclo = False
-            
-        print("[LOG] Monitorando banco de dados de imóveis e novas mensagens...")
-        time.sleep(15)  # Aumentamos para 15 segundos para o log ficar mais limpo
+@app.route('/', methods=['GET', 'HEAD'])
+def home():
+    # Rota para o Render monitorar a saúde da aplicação (Health Check)
+    return "Sistema de Automação Imobiliária Ativo", 200
 
-if __name__ == "__main__":
-    threading.Thread(target=loop_do_robo, daemon=True).start()
-    app.run(host="0.0.0.0", port=10000)
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    # Rota simulada para receber as mensagens do WhatsApp (Mariana)
+    dados = request.get_json()
+    
+    if not dados:
+        return jsonify({"status": "erro", "mensagem": "Nenhum dado recebido"}), 400
+        
+    print(f"\n[WHATSAPP] Nova mensagem recebida de {dados.get('nome', 'Cliente')}!")
+    print(f"[WHATSAPP] Texto: '{dados.get('mensagem', '')}'")
+    print("[IA] Pensando na melhor resposta com o Gemini...")
+    
+    resposta_ia = responder_com_gemini(dados.get('mensagem', ''))
+    
+    print("\n==================================================")
+    print(f"[IA RESPOSTA PARA {dados.get('nome', 'CLIENTE').upper()}]:")
+    print(resposta_ia)
+    print("==================================================\n")
+    
+    return jsonify({"status": "sucesso", "resposta": resposta_ia}), 200
+
+# Função que roda em segundo plano para simular mensagens e manter o log ativo
+def rotina_segundo_plano():
+    # 1. Espera 2 segundos e dispara o teste inicial da Mariana
+    time.sleep(2)
+    with app.test_client() as client:
+        client.post('/webhook', json={
+            "nome": "Mariana",
+            "mensagem": "Olá, gostaria de saber se vocês têm alguma casa de 3 quartos disponível para alugar perto do centro."
+        })
+    
+    # 2. Entra no loop infinito para printar o status no log a cada 15 segundos
+    while True:
+        time.sleep(15)
+        print("[LOG] Monitorando banco de dados de imóveis e novas mensagens...")
+
+if __name__ == '__main__':
+    print("\n--- SISTEMA DE AUTOMAÇÃO IMOBILIÁRIA ATIVO ---")
+    print("Aguardando novas mensagens de leads do WhatsApp...\n")
+    
+    # Inicia a thread que cuida tanto do teste da Mariana quanto dos logs repetitivos
+    threading.Thread(target=rotina_segundo_plano, daemon=True).start()
+        
+    # Inicia o servidor Flask na porta exigida pelo Render
+    porta = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=porta, debug=False)
