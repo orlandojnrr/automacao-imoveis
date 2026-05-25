@@ -20,7 +20,7 @@ def home():
 def responder_com_gemini(mensagem_cliente):
     try:
         # Usamos o modelo 'gemini-1.5-flash', que é super rápido e gratuito
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('models/gemini-1.5-flash')
         
         # O "Prompt" é a instrução de como a IA deve se comportar (o papel dela)
         prompt_sistema = (
