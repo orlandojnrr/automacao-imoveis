@@ -11,20 +11,21 @@ app = Flask(__name__)
 api_key = os.environ.get("GEMINI_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
+    # FORÇA O SDK A USAR A API ESTÁVEL V1 (Evita o erro 404 da v1beta)
+    os.environ["慶_API_VERSION"] = "v1"  # Truque para o core do Google API
 
 @app.route('/')
 def home():
     return "Robô Ativo com Cérebro Gemini!", 200
 
 # Aqui é onde o cérebro da IA processa a mensagem do cliente
-def responder_com_gemini(mensagem_cliente):
+ddef responder_com_gemini(mensagem_cliente):
     try:
-        # Usando o modelo coringa estável para a rota legada da biblioteca
-        model = genai.GenerativeModel('gemini-pro')
+        # Agora com a API certa, o 1.5-flash vai rodar liso
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
-        # O "Prompt" é a instrução de como a IA deve se comportar
         prompt_sistema = (
-            "Você é um corretor de imóveis profissional, muito educado e prestativo. "
+            "Você é uma corretora de imóveis profissional, muito educada e prestativa. "
             "Sua missão é responder à mensagem do cliente abaixo, tentando entender melhor o que ele precisa "
             "(como localização, quantidade de quartos e orçamento) e agendar uma visita ou ligação. "
             "Responda de forma natural, humanizada e use emojis moderadamente.\n\n"
