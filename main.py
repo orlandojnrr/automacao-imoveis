@@ -19,8 +19,8 @@ def home():
 # Aqui é onde o cérebro da IA processa a mensagem do cliente
 def responder_com_gemini(mensagem_cliente):
     try:
-        # Mudando para o modelo estável garantido para destravar o endpoint
-        model = genai.GenerativeModel('gemini-1.0-pro')
+        # Usando o modelo coringa estável para a rota legada da biblioteca
+        model = genai.GenerativeModel('gemini-pro')
         
         # O "Prompt" é a instrução de como a IA deve se comportar
         prompt_sistema = (
