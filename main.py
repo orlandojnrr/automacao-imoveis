@@ -18,10 +18,10 @@ else:
 
 def responder_com_gemini(mensagem_cliente):
     try:
-        # Inicializa o modelo padrão atual na API v1 estável
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Mudança do modelo para a versão estável específica de API corporativa
+        # Isso força o SDK a encontrar o endpoint correto mesmo na v1beta
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         
-        # Prompt de orientação para o comportamento do corretor de imóveis
         prompt_sistema = (
             "Você é um corretor de imóveis profissional, muito educado e prestativo. "
             "Sua missão é responder à mensagem do cliente abaixo, tentando entender melhor o que ele precisa "
@@ -33,7 +33,14 @@ def responder_com_gemini(mensagem_cliente):
         response = model.generate_content(prompt_sistema)
         return response.text
     except Exception as e:
-        return f"Erro ao chamar a API do Gemini: {e}"
+        # Se o flash-latest ainda chiar por conta do ambiente, tentamos o fallback imediato
+        try:
+            print("[INFO] Tentando fallback para o modelo alternativo...")
+            model_fallback = genai.GenerativeModel('gemini-pro')
+            response = model_fallback.generate_content(prompt_sistema)
+            return response.text
+        except Exception as e_fallback:
+            return f"Erro ao chamar a API do Gemini (Principal e Fallback): {e} | Fallback: {e_fallback}"
 
 @app.route('/', methods=['GET', 'HEAD'])
 def home():
