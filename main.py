@@ -6,7 +6,7 @@ from google import genai
 
 app = Flask(__name__)
 
-# O cliente moderno inicializa de forma limpa usando a chave de ambiente
+# Inicialização limpa do cliente moderno
 api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key) if api_key else None
 
@@ -25,9 +25,9 @@ def responder_com_gemini(mensagem_cliente):
             f"Mensagem do Cliente: {mensagem_cliente}"
         )
         
-        # Chamada oficial e moderna da API estável
+        # Explicitamos 'models/gemini-1.5-flash' para matar o erro de v1beta no Render
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='models/gemini-1.5-flash',
             contents=prompt_sistema,
         )
         return response.text
@@ -59,7 +59,7 @@ def webhook():
     return jsonify({"status": "sucesso", "resposta": resposta_ia}), 200
 
 def rotina_segundo_plano():
-    # 10 segundos para o Render processar a abertura da porta antes do teste interno
+    # 10 segundos para garantir estabilidade antes do teste
     time.sleep(10)
     
     print("[TESTE] Disparando simulação interna da Mariana...", flush=True)
