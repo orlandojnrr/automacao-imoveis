@@ -2,7 +2,7 @@ import os
 import time
 import threading
 from flask import Flask, request, jsonify
-from google import genai  # Usa o SDK moderno obrigatório para 2026
+from google import genai  # Usa o SDK moderno e obrigatório
 
 # Inicializa o aplicativo Flask
 app = Flask(__name__)
@@ -10,16 +10,23 @@ app = Flask(__name__)
 # Busca a chave de API do Gemini das variáveis de ambiente do Render
 api_key = os.environ.get("GEMINI_API_KEY")
 
-# Inicializa o cliente do SDK moderno
-client = genai.Client(api_key=api_key) if api_key else None
-
-if not client:
+# =========================================================================
+# SOLUÇÃO DEFINITIVA: Forçamos o cliente a usar a versão 'v1' de produção.
+# Isso evita que ele caia na rota 'v1beta' (onde o modelo flash foi desativado).
+# =========================================================================
+if api_key:
+    client = genai.Client(
+        api_key=api_key,
+        http_options={'api_version': 'v1'}
+    )
+else:
+    client = None
     print("[AVISO] Chave GEMINI_API_KEY não encontrada nas variáveis.", flush=True)
 
 def responder_com_gemini(mensagem_cliente):
     """
     Função responsável por pegar a mensagem do WhatsApp, criar o contexto
-    do corretor de imóveis e solicitar a resposta para a API moderna do Gemini.
+    do corretor de imóveis e solicitar a resposta para a API do Gemini.
     """
     if not client:
         return "Erro: Cliente Gemini não foi inicializado por falta de API Key."
@@ -34,7 +41,7 @@ def responder_com_gemini(mensagem_cliente):
             f"Mensagem do Cliente: {mensagem_cliente}"
         )
         
-        # Sintaxe definitiva para o SDK moderno: passamos apenas a string direta do modelo
+        # Agora a chamada funcionará perfeitamente porque a rota 'v1' reconhece o modelo
         response = client.models.generate_content(
             model='gemini-1.5-flash',
             contents=prompt_sistema,
