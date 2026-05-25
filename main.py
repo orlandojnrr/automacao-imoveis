@@ -2,7 +2,7 @@ import os
 import time
 import threading
 from flask import Flask, request, jsonify
-from google import genai  # Usa o SDK moderno e obrigatório
+from google import genai  # SDK Moderno oficial
 
 # Inicializa o aplicativo Flask
 app = Flask(__name__)
@@ -10,10 +10,7 @@ app = Flask(__name__)
 # Busca a chave de API do Gemini das variáveis de ambiente do Render
 api_key = os.environ.get("GEMINI_API_KEY")
 
-# =========================================================================
-# SOLUÇÃO DEFINITIVA: Forçamos o cliente a usar a versão 'v1' de produção.
-# Isso evita que ele caia na rota 'v1beta' (onde o modelo flash foi desativado).
-# =========================================================================
+# Inicializa o cliente apontando para a API de produção v1
 if api_key:
     client = genai.Client(
         api_key=api_key,
@@ -25,34 +22,40 @@ else:
 
 def responder_com_gemini(mensagem_cliente):
     """
-    Função responsável por pegar a mensagem do WhatsApp, criar o contexto
-    do corretor de imóveis e solicitar a resposta para a API do Gemini.
+    Função com sistema de contingência (Fallback) que testa os modelos
+    vigentes para garantir resposta mesmo com mudanças de versão da Google.
     """
     if not client:
         return "Erro: Cliente Gemini não foi inicializado por falta de API Key."
         
-    try:
-        # Criamos as instruções de comportamento da Inteligência Artificial (System Prompt)
-        prompt_sistema = (
-            "Você é um corretor de imóveis profissional, muito educado e prestativo. "
-            "Sua missão é responder à mensagem do cliente abaixo, tentando entender melhor o que ele precisa "
-            "(como localização, quantidade de quartos e orçamento) e agendar uma visita ou ligação. "
-            "Responda de forma natural, humanizada e use emojis moderadamente.\n\n"
-            f"Mensagem do Cliente: {mensagem_cliente}"
-        )
-        
-        # Agora a chamada funcionará perfeitamente porque a rota 'v1' reconhece o modelo
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=prompt_sistema,
-        )
-        
-        # Retorna o texto gerado pela IA
-        return response.text
-        
-    except Exception as e:
-        # Captura qualquer erro na chamada da API
-        return f"Erro ao chamar a API do Gemini: {e}"
+    prompt_sistema = (
+        "Você é um corretor de imóveis profissional, muito educado e prestativo. "
+        "Sua missão é responder à mensagem do cliente abaixo, tentando entender melhor o que ele precisa "
+        "(como localização, quantidade de quartos e orçamento) e agendar uma visita ou ligação. "
+        "Responda de forma natural, humanizada e use emojis moderadamente.\n\n"
+        f"Mensagem do Cliente: {mensagem_cliente}"
+    )
+
+    # Lista de modelos oficiais da Google (do mais recente/provável ao anterior)
+    modelos_para_testar = ['gemini-2.5-flash', 'gemini-1.5-flash']
+    ultimo_erro = None
+
+    for modelo in modelos_para_testar:
+        try:
+            print(f"[IA] Tentando conectar usando o modelo: {modelo}...", flush=True)
+            response = client.models.generate_content(
+                model=modelo,
+                contents=prompt_sistema,
+            )
+            # Se funcionar, retorna o texto imediatamente e encerra a função
+            return response.text
+        except Exception as e:
+            ultimo_erro = e
+            print(f"[AVISO] O modelo {modelo} não respondeu. Tentando o próximo...", flush=True)
+            continue
+            
+    # Se nenhum dos modelos da Google funcionar, exibe o erro final estruturado
+    return f"Erro crítico: Nenhum modelo disponível respondeu na API v1. Detalhes: {ultimo_erro}"
 
 @app.route('/', methods=['GET', 'HEAD'])
 def home():
@@ -73,7 +76,7 @@ def webhook():
         
     print(f"\n[WHATSAPP] Nova mensagem recebida de {dados.get('nome', 'Cliente')}!", flush=True)
     print(f"[WHATSAPP] Texto: '{dados.get('mensagem', '')}'", flush=True)
-    print("[IA] Pensando na melhor resposta com o Gemini...", flush=True)
+    print("[IA] Iniciando chamada com os servidores da Google Gemini...", flush=True)
     
     resposta_ia = responder_com_gemini(dados.get('mensagem', ''))
     
