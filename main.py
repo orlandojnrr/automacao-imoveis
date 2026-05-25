@@ -19,12 +19,12 @@ def home():
 # Aqui é onde o cérebro da IA processa a mensagem do cliente
 def responder_com_gemini(mensagem_cliente):
     try:
-        # Mudamos para 'gemini-1.5-flash-latest' que aponta direto para a versão de produção atual da API
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        # Mudando para o modelo estável garantido para destravar o endpoint
+        model = genai.GenerativeModel('gemini-1.0-pro')
         
-        # O "Prompt" é a instrução de como a IA deve se comportar (o papel dela)
+        # O "Prompt" é a instrução de como a IA deve se comportar
         prompt_sistema = (
-            "Você é uma corretora de imóveis profissional, muito educada e prestativa. "
+            "Você é um corretor de imóveis profissional, muito educado e prestativo. "
             "Sua missão é responder à mensagem do cliente abaixo, tentando entender melhor o que ele precisa "
             "(como localização, quantidade de quartos e orçamento) e agendar uma visita ou ligação. "
             "Responda de forma natural, humanizada e use emojis moderadamente.\n\n"
