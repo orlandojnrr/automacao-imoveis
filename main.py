@@ -19,8 +19,8 @@ def home():
 # Aqui é onde o cérebro da IA processa a mensagem do cliente
 def responder_com_gemini(mensagem_cliente):
     try:
-        # Usamos o modelo 'gemini-1.5-flash', que é super rápido e gratuito
-        model = genai.GenerativeModel('models/gemini-1.5-flash')
+        # Mudamos para 'gemini-1.5-flash-latest' que aponta direto para a versão de produção atual da API
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         
         # O "Prompt" é a instrução de como a IA deve se comportar (o papel dela)
         prompt_sistema = (
