@@ -1,17 +1,26 @@
 import os
 import time
 import threading
+import requests  # Nova biblioteca importada para fazer os disparos de mensagens para o WhatsApp
 from flask import Flask, request, jsonify
-from google import genai  # Importa o SDK moderno oficial da Google para 2026
+from google import genai  # SDK Moderno oficial da Google
 
-# Inicializa o aplicativo Flask para gerenciar as rotas HTTP (Webhooks)
+# Inicializa o aplicativo Flask para gerenciar os Webhooks
 app = Flask(__name__)
 
-# Busca a chave de autenticação da API do Gemini configurada nas variáveis de ambiente do Render
+# =========================================================================
+# CONFIGURAÇÕES DA API DO WHATSAPP (EVOLUTION API)
+# Deixamos essas variáveis prontas. Quando você configurar sua API do WhatsApp,
+# basta preencher os valores aqui. Por enquanto, ficam como exemplo.
+# =========================================================================
+WHATSAPP_API_URL = "https://sua-api-evolution.com"  # O endereço onde sua API estará rodando
+WHATSAPP_API_TOKEN = "SeuTokenGlobalAqui"            # A senha de segurança da sua API
+WHATSAPP_INSTANCE_NAME = "Imobiliaria_Corretor"     # O nome da instância que você criou na API
+
+# Busca a chave de autenticação da API do Gemini nas variáveis de ambiente do Render
 api_key = os.environ.get("GEMINI_API_KEY")
 
-# Inicializa o cliente de conexão apontando explicitamente para a API de produção v1.
-# Isso evita que a biblioteca use a rota 'v1beta' por padrão, onde modelos antigos foram desativados.
+# Inicializa o cliente apontando explicitamente para a API de produção v1
 if api_key:
     client = genai.Client(
         api_key=api_key,
@@ -21,15 +30,59 @@ else:
     client = None
     print("[AVISO] Chave GEMINI_API_KEY não encontrada nas variáveis.", flush=True)
 
+def enviar_mensagem_whatsapp(numero_cliente, texto_resposta):
+    """
+    Função responsável por pegar o texto gerado pelo Gemini e fazer um disparo
+    HTTP do tipo POST para a API do WhatsApp enviar a mensagem de fato para o cliente.
+    """
+    # Se você ainda não configurou os dados reais da API, a função apenas avisa no log e não trava o código
+    if "sua-api-evolution" in WHATSAPP_API_URL:
+        print(f"[WHATSAPP - SIMULAÇÃO] Enviando para {numero_cliente}: {texto_resposta[:50]}...", flush=True)
+        return False
+
+    # Monta a URL exata de disparo da Evolution API para envio de texto plano
+    url_envio = f"{WHATSAPP_API_URL}/message/sendText/{WHATSAPP_INSTANCE_NAME}"
+    
+    # Monta o cabeçalho (Header) com a chave de segurança exigida pela Evolution API
+    headers = {
+        "Content-Type": "application/json",
+        "apikey": WHATSAPP_API_TOKEN
+    }
+    
+    # Monta o corpo da requisição (Payload) com o número do cliente e o texto da IA
+    payload = {
+        "number": numero_cliente,
+        "options": {
+            "delay": 1200,       # Simula um atraso de 1.2 segundos para parecer digitação humana
+            "presence": "composing"  # Faz aparecer "Digitando..." no WhatsApp do cliente
+        },
+        "textMessage": {
+            "text": texto_resposta
+        }
+    }
+
+    try:
+        # Faz o disparo real via internet para a API do WhatsApp
+        resposta_api = requests.post(url_envio, json=payload, headers=headers)
+        
+        # Se o status for 200 ou 201, o envio foi aceito pela API com sucesso
+        if resposta_api.status_code in [200, 201]:
+            print(f"[WHATSAPP] Mensagem enviada com sucesso para o número {numero_cliente}!", flush=True)
+            return True
+        else:
+            print(f"[ERRO WHATSAPP] Falha ao enviar. Status: {resposta_api.status_code} - Resposta: {resposta_api.text}", flush=True)
+            return False
+    except Exception as erro_conexao:
+        print(f"[ERRO CRÍTICO] Não foi possível conectar na API do WhatsApp: {erro_conexao}", flush=True)
+        return False
+
 def responder_com_gemini(mensagem_cliente):
     """
-    Função com sistema de contingência (Fallback). Ela testa uma lista de modelos
-    vigentes para garantir a estabilidade caso a Google mude as versões suportadas.
+    Função com sistema de contingência (Fallback) que consulta a IA da Google.
     """
     if not client:
         return "Erro: Cliente Gemini não foi inicializado por falta de API Key."
         
-    # Define as instruções de persona (System Prompt) ditando como a IA deve agir e falar
     prompt_sistema = (
         "Você é um corretor de imóveis profissional, muito educado e prestativo. "
         "Sua missão é responder à mensagem do cliente abaixo, tentando entender melhor o que ele precisa "
@@ -38,11 +91,9 @@ def responder_com_gemini(mensagem_cliente):
         f"Mensagem do Cliente: {mensagem_cliente}"
     )
 
-    # Lista ordenada de modelos (priorizando o modelo mais atual em 2026)
     modelos_para_testar = ['gemini-2.5-flash', 'gemini-1.5-flash']
     ultimo_erro = None
 
-    # Loop que tenta enviar o prompt para cada modelo da lista até que um responda com sucesso
     for modelo in modelos_para_testar:
         try:
             print(f"[IA] Tentando conectar usando o modelo: {modelo}...", flush=True)
@@ -50,90 +101,75 @@ def responder_com_gemini(mensagem_cliente):
                 model=modelo,
                 contents=prompt_sistema,
             )
-            # Se a requisição funcionar, interrompe o loop e retorna o texto da resposta
             return response.text
         except Exception as e:
-            # Se falhar, armazena o erro ocorrido e continua para o próximo modelo da lista
             ultimo_erro = e
             print(f"[AVISO] O modelo {modelo} não respondeu. Tentando o próximo...", flush=True)
             continue
             
-    # Caso nenhum dos modelos consiga responder, retorna o relatório do erro final encontrado
     return f"Erro crítico: Nenhum modelo disponível respondeu na API v1. Detalhes: {ultimo_erro}"
 
 @app.route('/', methods=['GET', 'HEAD'])
 def home():
-    """
-    Rota raiz do servidor. Serve para o Render fazer a verificação de saúde (Health Check).
-    O Render envia requisições constantes aqui para saber se a aplicação continua online.
-    """
+    """Rota de verificação de saúde do Render (Health Check)"""
     return "Sistema de Automação Imobiliária Ativo", 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """
-    Rota principal que recebe as mensagens do WhatsApp encaminhadas por sua API de chat.
-    Ela espera um formato JSON contendo os dados do contato e o texto enviado.
+    Rota principal que recebe as mensagens. Agora ela captura o número
+    de quem enviou para podermos responder de volta!
     """
-    dados = request.get_json()  # Captura o corpo da requisição HTTP enviado no formato JSON
+    dados = request.get_json()
     
     if not dados:
         return jsonify({"status": "erro", "mensagem": "Nenhum dado recebido"}), 400
         
-    # Imprime no console do Render as informações estruturadas da nova mensagem recebida
-    print(f"\n[WHATSAPP] Nova mensagem recebida de {dados.get('nome', 'Cliente')}!", flush=True)
-    print(f"[WHATSAPP] Texto: '{dados.get('mensagem', '')}'", flush=True)
+    # Capturamos o número ou id do remetente (caso não exista, usamos um padrão para testes)
+    numero_remetente = dados.get('numero', '5511999999999')
+    nome_cliente = dados.get('nome', 'Cliente')
+    texto_mensagem = dados.get('mensagem', '')
+    
+    print(f"\n[WHATSAPP] Nova mensagem recebida de {nome_cliente} ({numero_remetente})!", flush=True)
+    print(f"[WHATSAPP] Texto: '{texto_mensagem}'", flush=True)
     print("[IA] Iniciando chamada com os servidores da Google Gemini...", flush=True)
     
-    # Aciona a inteligência artificial para formular uma resposta com base no texto recebido
-    resposta_ia = responder_com_gemini(dados.get('mensagem', ''))
+    # Gera a resposta inteligente usando o Gemini
+    resposta_ia = responder_com_gemini(texto_mensagem)
     
-    # Formata a exibição do retorno gerado pela IA nos logs para facilitar seu monitoramento visual
     print("\n==================================================", flush=True)
-    print(f"[IA RESPOSTA PARA {dados.get('nome', 'CLIENTE').upper()}]:", flush=True)
+    print(f"[IA RESPOSTA PARA {nome_cliente.upper()}]:", flush=True)
     print(resposta_ia, flush=True)
     print("==================================================\n", flush=True)
     
-    # Retorna para o remetente da requisição uma confirmação de sucesso com o texto gerado
+    # NOVA LOGICA: Pega o texto da IA e envia automaticamente para o WhatsApp do cliente!
+    enviar_mensagem_whatsapp(numero_remetente, resposta_ia)
+    
     return jsonify({"status": "sucesso", "resposta": resposta_ia}), 200
 
 def rotina_segundo_plano():
-    """
-    Função executada de forma assíncrona (Thread Paralela). Ela cuida de rotinas e tarefas
-    que precisam rodar sem bloquear o funcionamento principal das rotas do Flask.
-    """
-    # Pausa a execução deste bloco por 10 segundos para dar tempo do Flask inicializar por completo
+    """Thread paralela para simulações e logs de rotina"""
     time.sleep(10)
     
-    print("[TESTE] Disparando simulação interna da Mariana...", flush=True)
+    print("[TESTE] Disparando simulação interna da Mariana com campo de número...", flush=True)
     
-    # O 'app.test_client()' cria um simulador HTTP interno. Com ele, simulamos uma requisição
-    # idêntica a que sua API do WhatsApp faria, disparando um gatilho de teste automático.
+    # Atualizamos o teste da Mariana incluindo o campo 'numero' para testar a nova função
     with app.test_client() as simulador:
         simulador.post('/webhook', json={
             "nome": "Mariana",
+            "numero": "5521988888888",
             "mensagem": "Olá, gostaria de saber se vocês têm alguma casa de 3 quartos disponível para alugar perto do centro."
         })
     
-    # Cria um loop perpétuo (infinito) que simula o monitoramento em segundo plano do seu sistema
     while True:
-        # Pausa por 15 segundos entre cada checagem para evitar consumo excessivo de processamento
         time.sleep(15)
-        # O 'flush=True' força o Python a enviar o texto imediatamente para o terminal do Render
         print("[LOG] Monitorando banco de dados de imóveis e novas mensagens...", flush=True)
 
-# Ponto de entrada oficial do script Python
 if __name__ == '__main__':
     print("\n--- SISTEMA DE AUTOMAÇÃO IMOBILIÁRIA ATIVO ---", flush=True)
     print("Aguardando novas mensagens de leads do WhatsApp...\n", flush=True)
     
-    # Inicializa a função de segundo plano em um canal paralelo (Thread).
-    # O parâmetro 'daemon=True' garante que essa tarefa seja encerrada caso o aplicativo Flask pare.
     threading.Thread(target=rotina_segundo_plano, daemon=True).start()
         
-    # Define a porta de escuta do servidor. Busca a variável dinâmica do Render ou adota a 10000 por padrão.
     porta = int(os.environ.get("PORT", 10000))
-    
-    # Inicia o servidor web Flask para escutar em todos os endereços de rede ('0.0.0.0') na porta definida.
-    # O 'use_reloader=False' é crucial para evitar que a Thread de segundo plano seja disparada duas vezes.
     app.run(host='0.0.0.0', port=porta, debug=False, use_reloader=False)
