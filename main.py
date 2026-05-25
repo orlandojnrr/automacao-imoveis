@@ -4,17 +4,15 @@ import threading
 from flask import Flask, request, jsonify
 import google.generativeai as genai
 
+# Configuração global de ambiente nativa que o SDK antigo aceita sem congelar
+os.environ["GOOGLE_API_VERSION"] = "v1"
+
 app = Flask(__name__)
 
-# Configura a IA usando os parâmetros globais da biblioteca antiga
+# Configuração simples e direta
 api_key = os.environ.get("GEMINI_API_KEY")
 if api_key:
-    genai.configure(
-        api_key=api_key,
-        # Forçamos o cliente antigo a usar explicitamente a rota estável v1 da API do Google,
-        # impedindo o contêiner de injetar a v1beta automaticamente no endpoint.
-        client_options={"api_endpoint": "generativelanguage.googleapis.com/v1"}
-    )
+    genai.configure(api_key=api_key)
 else:
     print("[AVISO] Chave GEMINI_API_KEY não encontrada nas variáveis.", flush=True)
 
@@ -31,13 +29,18 @@ def responder_com_gemini(mensagem_cliente):
             f"Mensagem do Cliente: {mensagem_cliente}"
         )
         
-        response = model.generate_content(prompt_sistema)
+        # Configura um limite estrito de tempo de resposta para não congelar o Flask
+        config = genai.types.GenerationConfig(max_output_tokens=300)
+        
+        # Chamada direta com a rota v1 corrigida por ambiente
+        response = model.generate_content(prompt_sistema, generation_config=config)
         return response.text
     except Exception as e:
         return f"Erro ao chamar a API do Gemini: {e}"
 
 @app.route('/', methods=['GET', 'HEAD'])
 def home():
+    # Responde imediatamente ao Render para provar que a porta 10000 está viva
     return "Sistema de Automação Imobiliária Ativo", 200
 
 @app.route('/webhook', methods=['POST'])
@@ -58,12 +61,13 @@ def webhook():
     print(resposta_ia, flush=True)
     print("==================================================\n", flush=True)
     
-    return jsonify({"status": "sucesso", "resposta": resposta_ia}), 200
+    return jsonify({"status": "sucesso", "resposta": response_ia if 'response_ia' in locals() else resposta_ia}), 200
 
 def rotina_segundo_plano():
-    # Dá uma folga de 5 segundos para o Render iniciar a escuta da porta
-    time.sleep(5)
+    # Espera 10 segundos para dar tempo total do Render registrar a porta aberta
+    time.sleep(10)
     
+    print("[TESTE] Disparando simulação interna da Mariana...", flush=True)
     with app.test_client() as simulador:
         simulador.post('/webhook', json={
             "nome": "Mariana",
@@ -81,4 +85,5 @@ if __name__ == '__main__':
     threading.Thread(target=rotina_segundo_plano, daemon=True).start()
         
     porta = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=porta, debug=False)
+    # Desativamos qualquer travamento de reload do Flask
+    app.run(host='0.0.0.0', port=porta, debug=False, use_reloader=False)
