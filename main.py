@@ -2,22 +2,27 @@ import os
 import time
 import threading
 from flask import Flask, request, jsonify
-# Usamos o cliente moderno unificado para evitar o bug de rotas do pacote antigo
-from google import genai
+import google.generativeai as genai
 
 app = Flask(__name__)
 
-# Configura o cliente moderno apontando direto para o backend estável
+# Configura a IA usando os parâmetros globais da biblioteca antiga
 api_key = os.environ.get("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key) if api_key else None
-
-if not client:
+if api_key:
+    genai.configure(
+        api_key=api_key,
+        # Forçamos o cliente antigo a usar explicitamente a rota estável v1 da API do Google,
+        # impedindo o contêiner de injetar a v1beta automaticamente no endpoint.
+        client_options={"api_endpoint": "generativelanguage.googleapis.com/v1"}
+    )
+else:
     print("[AVISO] Chave GEMINI_API_KEY não encontrada nas variáveis.", flush=True)
 
 def responder_com_gemini(mensagem_cliente):
-    if not client:
-        return "Erro: Cliente Gemini não foi inicializado por falta de API Key."
     try:
+        # Instancia o modelo estável padrão
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
         prompt_sistema = (
             "Você é um corretor de imóveis profissional, muito educado e prestativo. "
             "Sua missão é responder à mensagem do cliente abaixo, tentando entender melhor o que ele precisa "
@@ -26,11 +31,7 @@ def responder_com_gemini(mensagem_cliente):
             f"Mensagem do Cliente: {mensagem_cliente}"
         )
         
-        # A chamada moderna usa client.models.generate_content e já bate direto na rota estável v1
-        response = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=prompt_sistema,
-        )
+        response = model.generate_content(prompt_sistema)
         return response.text
     except Exception as e:
         return f"Erro ao chamar a API do Gemini: {e}"
@@ -60,7 +61,7 @@ def webhook():
     return jsonify({"status": "sucesso", "resposta": resposta_ia}), 200
 
 def rotina_segundo_plano():
-    # Espera 5 segundos para garantir que o Render estabilizou a rota do contêiner
+    # Dá uma folga de 5 segundos para o Render iniciar a escuta da porta
     time.sleep(5)
     
     with app.test_client() as simulador:
