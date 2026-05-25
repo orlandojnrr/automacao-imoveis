@@ -19,7 +19,7 @@ def home():
     return "Robô Ativo com Cérebro Gemini!", 200
 
 # Aqui é onde o cérebro da IA processa a mensagem do cliente
-ddef responder_com_gemini(mensagem_cliente):
+def responder_com_gemini(mensagem_cliente):
     try:
         # Agora com a API certa, o 1.5-flash vai rodar liso
         model = genai.GenerativeModel('gemini-1.5-flash')
