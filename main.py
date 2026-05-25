@@ -2,26 +2,22 @@ import os
 import time
 import threading
 from flask import Flask, request, jsonify
-import google.generativeai as genai
-
-# Força o SDK do Google a usar a rota v1 estável globalmente
-os.environ["GOOGLE_API_VERSION"] = "v1"
+# Usamos o cliente moderno unificado para evitar o bug de rotas do pacote antigo
+from google import genai
 
 app = Flask(__name__)
 
-# Configura a IA do Gemini usando a chave secreta vinda do ambiente (Render)
+# Configura o cliente moderno apontando direto para o backend estável
 api_key = os.environ.get("GEMINI_API_KEY")
-if api_key:
-    genai.configure(api_key=api_key)
-else:
-    print("[AVISO] Chave GEMINI_API_KEY não encontrada nas variáveis de ambiente.")
+client = genai.Client(api_key=api_key) if api_key else None
+
+if not client:
+    print("[AVISO] Chave GEMINI_API_KEY não encontrada nas variáveis.", flush=True)
 
 def responder_com_gemini(mensagem_cliente):
+    if not client:
+        return "Erro: Cliente Gemini não foi inicializado por falta de API Key."
     try:
-        # Mudança do modelo para a versão estável específica de API corporativa
-        # Isso força o SDK a encontrar o endpoint correto mesmo na v1beta
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
-        
         prompt_sistema = (
             "Você é um corretor de imóveis profissional, muito educado e prestativo. "
             "Sua missão é responder à mensagem do cliente abaixo, tentando entender melhor o que ele precisa "
@@ -30,66 +26,58 @@ def responder_com_gemini(mensagem_cliente):
             f"Mensagem do Cliente: {mensagem_cliente}"
         )
         
-        response = model.generate_content(prompt_sistema)
+        # A chamada moderna usa client.models.generate_content e já bate direto na rota estável v1
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=prompt_sistema,
+        )
         return response.text
     except Exception as e:
-        # Se o flash-latest ainda chiar por conta do ambiente, tentamos o fallback imediato
-        try:
-            print("[INFO] Tentando fallback para o modelo alternativo...")
-            model_fallback = genai.GenerativeModel('gemini-pro')
-            response = model_fallback.generate_content(prompt_sistema)
-            return response.text
-        except Exception as e_fallback:
-            return f"Erro ao chamar a API do Gemini (Principal e Fallback): {e} | Fallback: {e_fallback}"
+        return f"Erro ao chamar a API do Gemini: {e}"
 
 @app.route('/', methods=['GET', 'HEAD'])
 def home():
-    # Rota para o Render monitorar a saúde da aplicação (Health Check)
     return "Sistema de Automação Imobiliária Ativo", 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    # Rota simulada para receber as mensagens do WhatsApp (Mariana)
     dados = request.get_json()
     
     if not dados:
         return jsonify({"status": "erro", "mensagem": "Nenhum dado recebido"}), 400
         
-    print(f"\n[WHATSAPP] Nova mensagem recebida de {dados.get('nome', 'Cliente')}!")
-    print(f"[WHATSAPP] Texto: '{dados.get('mensagem', '')}'")
-    print("[IA] Pensando na melhor resposta com o Gemini...")
+    print(f"\n[WHATSAPP] Nova mensagem recebida de {dados.get('nome', 'Cliente')}!", flush=True)
+    print(f"[WHATSAPP] Texto: '{dados.get('mensagem', '')}'", flush=True)
+    print("[IA] Pensando na melhor resposta com o Gemini...", flush=True)
     
     resposta_ia = responder_com_gemini(dados.get('mensagem', ''))
     
-    print("\n==================================================")
-    print(f"[IA RESPOSTA PARA {dados.get('nome', 'CLIENTE').upper()}]:")
-    print(resposta_ia)
-    print("==================================================\n")
+    print("\n==================================================", flush=True)
+    print(f"[IA RESPOSTA PARA {dados.get('nome', 'CLIENTE').upper()}]:", flush=True)
+    print(resposta_ia, flush=True)
+    print("==================================================\n", flush=True)
     
     return jsonify({"status": "sucesso", "resposta": resposta_ia}), 200
 
-# Função que roda em segundo plano para simular mensagens e manter o log ativo
 def rotina_segundo_plano():
-    # 1. Espera 2 segundos e dispara o teste inicial da Mariana
-    time.sleep(2)
-    with app.test_client() as client:
-        client.post('/webhook', json={
+    # Espera 5 segundos para garantir que o Render estabilizou a rota do contêiner
+    time.sleep(5)
+    
+    with app.test_client() as simulador:
+        simulador.post('/webhook', json={
             "nome": "Mariana",
             "mensagem": "Olá, gostaria de saber se vocês têm alguma casa de 3 quartos disponível para alugar perto do centro."
         })
     
-    # 2. Entra no loop infinito para printar o status no log a cada 15 segundos
     while True:
         time.sleep(15)
-        print("[LOG] Monitorando banco de dados de imóveis e novas mensagens...")
+        print("[LOG] Monitorando banco de dados de imóveis e novas mensagens...", flush=True)
 
 if __name__ == '__main__':
-    print("\n--- SISTEMA DE AUTOMAÇÃO IMOBILIÁRIA ATIVO ---")
-    print("Aguardando novas mensagens de leads do WhatsApp...\n")
+    print("\n--- SISTEMA DE AUTOMAÇÃO IMOBILIÁRIA ATIVO ---", flush=True)
+    print("Aguardando novas mensagens de leads do WhatsApp...\n", flush=True)
     
-    # Inicia a thread que cuida tanto do teste da Mariana quanto dos logs repetitivos
     threading.Thread(target=rotina_segundo_plano, daemon=True).start()
         
-    # Inicia o servidor Flask na porta exigida pelo Render
     porta = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=porta, debug=False)
