@@ -3,6 +3,7 @@ import time
 import threading
 from flask import Flask, request, jsonify
 from google import genai
+from google.genai import types
 
 # Inicializa o aplicativo Flask
 app = Flask(__name__)
@@ -41,7 +42,7 @@ def responder_com_gemini(mensagem_cliente):
         # Chamada oficial ao SDK moderno da Google.
         # CORREÇÃO: Usamos apenas 'gemini-1.5-flash' sem o prefixo 'models/'
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model=types.SupportedModels.GEMINI_1_5_FLASH,
             contents=prompt_sistema,
         )
         
