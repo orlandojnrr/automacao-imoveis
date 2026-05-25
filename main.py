@@ -2,7 +2,7 @@ import os
 import time
 import threading
 from flask import Flask, request, jsonify
-import google.generativeai as genai  # Alterado para a biblioteca estável de produção
+from google import genai  # Usa o SDK moderno obrigatório para 2026
 
 # Inicializa o aplicativo Flask
 app = Flask(__name__)
@@ -10,23 +10,22 @@ app = Flask(__name__)
 # Busca a chave de API do Gemini das variáveis de ambiente do Render
 api_key = os.environ.get("GEMINI_API_KEY")
 
-# Configura a biblioteca com a sua chave se ela existir
-if api_key:
-    genai.configure(api_key=api_key)
-else:
+# Inicializa o cliente do SDK moderno
+client = genai.Client(api_key=api_key) if api_key else None
+
+if not client:
     print("[AVISO] Chave GEMINI_API_KEY não encontrada nas variáveis.", flush=True)
 
 def responder_com_gemini(mensagem_cliente):
     """
     Função responsável por pegar a mensagem do WhatsApp, criar o contexto
-    do corretor de imóveis e solicitar a resposta para a API estável do Gemini.
+    do corretor de imóveis e solicitar a resposta para a API moderna do Gemini.
     """
-    if not api_key:
+    if not client:
         return "Erro: Cliente Gemini não foi inicializado por falta de API Key."
         
     try:
         # Criamos as instruções de comportamento da Inteligência Artificial (System Prompt)
-        # e injetamos a mensagem que a Mariana enviou.
         prompt_sistema = (
             "Você é um corretor de imóveis profissional, muito educado e prestativo. "
             "Sua missão é responder à mensagem do cliente abaixo, tentando entender melhor o que ele precisa "
@@ -35,13 +34,13 @@ def responder_com_gemini(mensagem_cliente):
             f"Mensagem do Cliente: {mensagem_cliente}"
         )
         
-        # Inicializa o modelo usando a string clássica que funciona perfeitamente nesta biblioteca
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # Sintaxe definitiva para o SDK moderno: passamos apenas a string direta do modelo
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=prompt_sistema,
+        )
         
-        # Gera o conteúdo passando o prompt estruturado
-        response = model.generate_content(prompt_sistema)
-        
-        # Retorna o texto puro gerado pela IA
+        # Retorna o texto gerado pela IA
         return response.text
         
     except Exception as e:
