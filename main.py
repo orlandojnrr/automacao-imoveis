@@ -23,12 +23,9 @@ historico_conversas = {}
 # Busca a chave de autenticação da API do Gemini nas variáveis de ambiente do Render
 api_key = os.environ.get("GEMINI_API_KEY")
 
-# Inicializa o cliente apontando explicitamente para a API de produção v1
+# Inicializa o cliente usando o padrão recomendado do SDK para evitar conflitos de versão
 if api_key:
-    client = genai.Client(
-        api_key=api_key,
-        http_options={'api_version': 'v1'}
-    )
+    client = genai.Client(api_key=api_key)
 else:
     client = None
     print("[AVISO] Chave GEMINI_API_KEY não encontrada nas variáveis.", flush=True)
@@ -101,23 +98,25 @@ def responder_com_gemini(numero_cliente, mensagem_cliente):
     contexto_conversas = "\n".join(historico_conversas[numero_cliente])
 
     prompt_sistema = (
-        "Você é um corretor de imóveis profissional, muito educado, empático e prestativo. "
+        "Você é um corretor de imóveis profissional, muito educado, empático e prestativo.\n"
         "Sua missão é responder à última mensagem do cliente com base no histórico da conversa abaixo. "
-        "Tente entender melhor o que ele precisa (como localização, quantidade de quartos e orçamento) "
-        "e conduza a conversa para agendar uma visita ou ligação.\n"
-        "Responda de forma natural, humanizada, evite textos longos e use emojis moderadamente.\n\n"
+        "Seu objetivo essencial, conforme nosso modelo de vendas, é qualificar o lead: entender o perfil dele "
+        "(se deseja comprar ou alugar, localização preferida, quantidade de quartos, vagas de garagem e o orçamento estimado).\n"
+        "Conduza o diálogo de forma natural e humanizada para agendar uma visita física ou uma ligação telefônica detalhada.\n"
+        "Responda de maneira objetiva, evite blocos longos de texto e use emojis de forma moderada.\n\n"
         "--- HISTÓRICO DA CONVERSA ---\n"
         f"{contexto_conversas}\n"
         "------------------------------\n"
         "Resposta do Corretor:"
     )
 
-    modelos_para_testar = ['gemini-2.5-flash', 'gemini-1.5-flash']
+    # Lista otimizada de modelos para o SDK moderno
+    modelos_para_testar = ['gemini-2.5-flash', 'gemini-2.5-pro']
     ultimo_erro = None
 
     for modelo in modelos_para_testar:
         try:
-            print(f"[IA] Tentando conectar usando o modelo: {modelo}...", flush=True)
+            print(f"[IA] Tentando conectar usando o modelo estável: {modelo}...", flush=True)
             response = client.models.generate_content(
                 model=modelo,
                 contents=prompt_sistema,
@@ -131,10 +130,10 @@ def responder_com_gemini(numero_cliente, mensagem_cliente):
             return resposta_texto
         except Exception as e:
             ultimo_erro = e
-            print(f"[AVISO] O modelo {modelo} não respondeu. Tentando o próximo...", flush=True)
+            print(f"[AVISO] O modelo {modelo} falhou. Tentando o próximo modelo da lista...", flush=True)
             continue
             
-    return f"Erro crítico: Nenhum modelo disponível respondeu na API v1. Detalhes: {ultimo_erro}"
+    return f"Erro crítico: Nenhum modelo disponível respondeu. Detalhes: {ultimo_erro}"
 
 @app.route('/', methods=['GET', 'HEAD'])
 def home():
@@ -187,7 +186,7 @@ def rotina_segundo_plano():
             "mensagem": "Olá, gostaria de ver uma casa de 3 quartos."
         })
         
-        time.sleep(3)
+        time.sleep(5)
         
         # Mensagem 2 (Sem dizer quantos quartos ou o que quer, para testar se o bot lembra)
         simulador.post('/webhook', json={
