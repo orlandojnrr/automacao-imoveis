@@ -1,7 +1,7 @@
 import os
 import time
 import threading
-import requests  # Nova biblioteca importada para fazer os disparos de mensagens para o WhatsApp
+import requests
 from flask import Flask, request, jsonify
 from google import genai  # SDK Moderno oficial da Google
 
@@ -10,12 +10,15 @@ app = Flask(__name__)
 
 # =========================================================================
 # CONFIGURAÇÕES DA API DO WHATSAPP (EVOLUTION API)
-# Deixamos essas variáveis prontas. Quando você configurar sua API do WhatsApp,
-# basta preencher os valores aqui. Por enquanto, ficam como exemplo.
+# O código vai tentar buscar do Render. Se não existir lá, usa esses como padrão.
 # =========================================================================
-WHATSAPP_API_URL = "https://sua-api-evolution.com"  # O endereço onde sua API estará rodando
-WHATSAPP_API_TOKEN = "SeuTokenGlobalAqui"            # A senha de segurança da sua API
-WHATSAPP_INSTANCE_NAME = "Imobiliaria_Corretor"     # O nome da instância que você criou na API
+WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", "https://sua-api-evolution.com")
+WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN", "SeuTokenGlobalAqui")
+WHATSAPP_INSTANCE_NAME = os.environ.get("WHATSAPP_INSTANCE_NAME", "Imobiliaria_Corretor")
+
+# Dicionário na memória para guardar o histórico de conversas por número de telefone
+# Estrutura: { "5521988888888": ["Cliente: Oi", "Corretor: Olá!", "Cliente: Quero uma casa"] }
+historico_conversas = {}
 
 # Busca a chave de autenticação da API do Gemini nas variáveis de ambiente do Render
 api_key = os.environ.get("GEMINI_API_KEY")
@@ -35,7 +38,7 @@ def enviar_mensagem_whatsapp(numero_cliente, texto_resposta):
     Função responsável por pegar o texto gerado pelo Gemini e fazer um disparo
     HTTP do tipo POST para a API do WhatsApp enviar a mensagem de fato para o cliente.
     """
-    # Se você ainda não configurou os dados reais da API, a função apenas avisa no log e não trava o código
+    # Se ainda estiver usando a URL de exemplo, apenas simula no log
     if "sua-api-evolution" in WHATSAPP_API_URL:
         print(f"[WHATSAPP - SIMULAÇÃO] Enviando para {numero_cliente}: {texto_resposta[:50]}...", flush=True)
         return False
@@ -76,19 +79,37 @@ def enviar_mensagem_whatsapp(numero_cliente, texto_resposta):
         print(f"[ERRO CRÍTICO] Não foi possível conectar na API do WhatsApp: {erro_conexao}", flush=True)
         return False
 
-def responder_com_gemini(mensagem_cliente):
+def responder_com_gemini(numero_cliente, mensagem_cliente):
     """
-    Função com sistema de contingência (Fallback) que consulta a IA da Google.
+    Função que consulta a IA da Google levando em consideração o histórico do cliente.
     """
     if not client:
         return "Erro: Cliente Gemini não foi inicializado por falta de API Key."
         
+    # Se o número não tiver histórico, inicializa uma lista vazia
+    if numero_cliente not in historico_conversas:
+        historico_conversas[numero_cliente] = []
+        
+    # Adiciona a nova mensagem do cliente ao histórico dele
+    historico_conversas[numero_cliente].append(f"Cliente: {mensagem_cliente}")
+    
+    # Limita o histórico para as últimas 10 mensagens para não estourar ou gastar tokens à toa
+    if len(historico_conversas[numero_cliente]) > 10:
+        historico_conversas[numero_cliente] = historico_conversas[numero_cliente][-10:]
+        
+    # Junta todo o histórico acumulado em um único bloco de texto
+    contexto_conversas = "\n".join(historico_conversas[numero_cliente])
+
     prompt_sistema = (
-        "Você é um corretor de imóveis profissional, muito educado e prestativo. "
-        "Sua missão é responder à mensagem do cliente abaixo, tentando entender melhor o que ele precisa "
-        "(como localização, quantidade de quartos e orçamento) e agendar uma visita ou ligação. "
-        "Responda de forma natural, humanizada e use emojis moderadamente.\n\n"
-        f"Mensagem do Cliente: {mensagem_cliente}"
+        "Você é um corretor de imóveis profissional, muito educado, empático e prestativo. "
+        "Sua missão é responder à última mensagem do cliente com base no histórico da conversa abaixo. "
+        "Tente entender melhor o que ele precisa (como localização, quantidade de quartos e orçamento) "
+        "e conduza a conversa para agendar uma visita ou ligação.\n"
+        "Responda de forma natural, humanizada, evite textos longos e use emojis moderadamente.\n\n"
+        "--- HISTÓRICO DA CONVERSA ---\n"
+        f"{contexto_conversas}\n"
+        "------------------------------\n"
+        "Resposta do Corretor:"
     )
 
     modelos_para_testar = ['gemini-2.5-flash', 'gemini-1.5-flash']
@@ -101,7 +122,13 @@ def responder_com_gemini(mensagem_cliente):
                 model=modelo,
                 contents=prompt_sistema,
             )
-            return response.text
+            
+            resposta_texto = response.text
+            
+            # Salva a resposta da própria IA no histórico para ela lembrar do que disse antes
+            historico_conversas[numero_cliente].append(f"Corretor: {resposta_texto}")
+            
+            return resposta_texto
         except Exception as e:
             ultimo_erro = e
             print(f"[AVISO] O modelo {modelo} não respondeu. Tentando o próximo...", flush=True)
@@ -117,15 +144,14 @@ def home():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """
-    Rota principal que recebe as mensagens. Agora ela captura o número
-    de quem enviou para podermos responder de volta!
+    Rota principal que recebe as mensagens do Webhook.
     """
     dados = request.get_json()
     
     if not dados:
         return jsonify({"status": "erro", "mensagem": "Nenhum dado recebido"}), 400
         
-    # Capturamos o número ou id do remetente (caso não exista, usamos um padrão para testes)
+    # Capturamos os dados enviados pelo webhook
     numero_remetente = dados.get('numero', '5511999999999')
     nome_cliente = dados.get('nome', 'Cliente')
     texto_mensagem = dados.get('mensagem', '')
@@ -134,15 +160,15 @@ def webhook():
     print(f"[WHATSAPP] Texto: '{texto_mensagem}'", flush=True)
     print("[IA] Iniciando chamada com os servidores da Google Gemini...", flush=True)
     
-    # Gera a resposta inteligente usando o Gemini
-    resposta_ia = responder_com_gemini(texto_mensagem)
+    # Gera a resposta inteligente usando o Gemini (passando o número para a memória)
+    resposta_ia = responder_com_gemini(numero_remetente, texto_mensagem)
     
     print("\n==================================================", flush=True)
     print(f"[IA RESPOSTA PARA {nome_cliente.upper()}]:", flush=True)
     print(resposta_ia, flush=True)
     print("==================================================\n", flush=True)
     
-    # NOVA LOGICA: Pega o texto da IA e envia automaticamente para o WhatsApp do cliente!
+    # Envia automaticamente para o WhatsApp do cliente (se configurado)
     enviar_mensagem_whatsapp(numero_remetente, resposta_ia)
     
     return jsonify({"status": "sucesso", "resposta": resposta_ia}), 200
@@ -151,14 +177,23 @@ def rotina_segundo_plano():
     """Thread paralela para simulações e logs de rotina"""
     time.sleep(10)
     
-    print("[TESTE] Disparando simulação interna da Mariana com campo de número...", flush=True)
+    print("[TESTE MULTI-MENSAGEM] Iniciando simulação da Mariana testando a nova memória...", flush=True)
     
-    # Atualizamos o teste da Mariana incluindo o campo 'numero' para testar a nova função
     with app.test_client() as simulador:
+        # Mensagem 1
         simulador.post('/webhook', json={
             "nome": "Mariana",
             "numero": "5521988888888",
-            "mensagem": "Olá, gostaria de saber se vocês têm alguma casa de 3 quartos disponível para alugar perto do centro."
+            "mensagem": "Olá, gostaria de ver uma casa de 3 quartos."
+        })
+        
+        time.sleep(3)
+        
+        # Mensagem 2 (Sem dizer quantos quartos ou o que quer, para testar se o bot lembra)
+        simulador.post('/webhook', json={
+            "nome": "Mariana",
+            "numero": "5521988888888",
+            "mensagem": "De preferência perto do centro. Quanto custa mais ou menos?"
         })
     
     while True:
