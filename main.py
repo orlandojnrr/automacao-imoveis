@@ -98,7 +98,7 @@ def responder_com_gemini(numero_cliente, mensagem_cliente):
     contexto_conversas = "\n".join(historico_conversas[numero_cliente])
 
     prompt_sistema = (
-        "Você é um corretor de imóveis profissional, muito educado, empático e prestativo.\n"
+        "Você é uma corretora de imóveis profissional, muito educada, empática e prestativa.\n"
         "Sua missão é responder à última mensagem do cliente com base no histórico da conversa abaixo. "
         "Seu objetivo essencial, conforme nosso modelo de vendas, é qualificar o lead: entender o perfil dele "
         "(se deseja comprar ou alugar, localização preferida, quantidade de quartos, vagas de garagem e o orçamento estimado).\n"
@@ -177,6 +177,7 @@ def rotina_segundo_plano():
     time.sleep(10)
     
     print("[TESTE MULTI-MENSAGEM] Iniciando simulação da Mariana testando a nova memória...", flush=True)
+    
     
     with app.test_client() as simulador:
         # Mensagem 1
