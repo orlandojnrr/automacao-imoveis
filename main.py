@@ -1,210 +1,430 @@
 import os
 import time
-import threading
+import re
 import requests
 from flask import Flask, request, jsonify
-from google import genai  # SDK Moderno oficial da Google
+from google import genai
+from google.genai import types
+from supabase import create_client, Client
+from typing import Optional, Dict, Any
 
-# Inicializa o aplicativo Flask para gerenciar os Webhooks
+# ⚡ ISSO PRECISA FICAR AQUI, ANTES DE QUALQUER LEITURA DE OS.ENVIRON!
+from dotenv import load_dotenv
+load_dotenv()
+
+# =============================================================================
+# INICIALIZAÇÃO DO FLASK E SUPABASE (SaaS Stateless)
+# =============================================================================
 app = Flask(__name__)
 
-# =========================================================================
-# CONFIGURAÇÕES DA API DO WHATSAPP (EVOLUTION API)
-# O código vai tentar buscar do Render. Se não existir lá, usa esses como padrão.
-# =========================================================================
-WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", "https://sua-api-evolution.com")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    print("[CRÍTICO] ❌ SUPABASE_URL ou SUPABASE_KEY não configuradas!", flush=True)
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+# =============================================================================
+# CONFIGURAÇÕES DA EVOLUTION API (WhatsApp) & GEMINI
+# =============================================================================
+WHATSAPP_API_URL   = os.environ.get("WHATSAPP_API_URL", "https://sua-api-evolution.com")
 WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN", "SeuTokenGlobalAqui")
-WHATSAPP_INSTANCE_NAME = os.environ.get("WHATSAPP_INSTANCE_NAME", "Imobiliaria_Corretor")
 
-# Dicionário na memória para guardar o histórico de conversas por número de telefone
-# Estrutura: { "5521988888888": ["Cliente: Oi", "Corretor: Olá!", "Cliente: Quero uma casa"] }
-historico_conversas = {}
-
-# Busca a chave de autenticação da API do Gemini nas variáveis de ambiente do Render
 api_key = os.environ.get("GEMINI_API_KEY")
+client = genai.Client(api_key=api_key) if api_key else None
 
-# Inicializa o cliente usando o padrão recomendado do SDK para evitar conflitos de versão
-if api_key:
-    client = genai.Client(api_key=api_key)
-else:
-    client = None
-    print("[AVISO] Chave GEMINI_API_KEY não encontrada nas variáveis.", flush=True)
+client = genai.Client(api_key=api_key) if api_key else None
 
-def enviar_mensagem_whatsapp(numero_cliente, texto_resposta):
+if not client:
+    print("[AVISO] Chave GEMINI_API_KEY não encontrada.", flush=True)
+
+# =============================================================================
+# CAMADA DE PERSISTÊNCIA E LOGICA MULTI-TENANT (SUPABASE)
+# =============================================================================
+
+def verificar_tenant(instance_name: str) -> Optional[dict]:
     """
-    Função responsável por pegar o texto gerado pelo Gemini e fazer um disparo
-    HTTP do tipo POST para a API do WhatsApp enviar a mensagem de fato para o cliente.
+    Regra Comercial: Checa o status financeiro no banco.
+    Se estiver inadimplente ou não existir, retorna None para não gastar API.
     """
-    # Se ainda estiver usando a URL de exemplo, apenas simula no log
-    if "sua-api-evolution" in WHATSAPP_API_URL:
-        print(f"[WHATSAPP - SIMULAÇÃO] Enviando para {numero_cliente}: {texto_resposta[:50]}...", flush=True)
-        return False
+    try:
+        response = supabase.table("configuracoes_whatsapp").select("id", "cliente_id", "status_financeiro", "numero_corretor_handoff", "nome_corretor_handoff").eq("instance_name", instance_name).execute()
+        if response.data:
+            tenant = response.data[0]
+            # Evita quebras se o banco retornar nulo ou letras maiúsculas
+            status = str(tenant.get("status_financeiro") or "Ativo").lower()
+            if status == "ativo" or status == "conectado":
+                return tenant
+            else:
+                print(f"[SaaS] 🚫 Tenant '{instance_name}' bloqueado por inadimplência/status inativo.", flush=True)
+        return None
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao verificar tenant: {e}", flush=True)
+        return None
 
-    # Monta a URL exata de disparo da Evolution API para envio de texto plano
-    url_envio = f"{WHATSAPP_API_URL}/message/sendText/{WHATSAPP_INSTANCE_NAME}"
-    
-    # Monta o cabeçalho (Header) com a chave de segurança exigida pela Evolution API
+def obter_ou_criar_lead(cliente_id: str, telefone: str, nome: str = None, imovel_origem: str = None) -> Optional[dict]:
+    """
+    Busca o lead pelo telefone dentro do escopo isolado do cliente_id.
+    Se não existir, cria dinamicamente salvando o nome e imóvel de origem.
+    """
+    try:
+        response = supabase.table("leads").select("*").eq("cliente_id", cliente_id).eq("telefone_lead", telefone).execute()
+        
+        if response.data:
+            lead = response.data[0]
+            if nome and (not lead.get("nome_lead") or lead["nome_lead"] == "Lead") and nome != "Lead":
+                supabase.table("leads").update({"nome_lead": nome}).eq("id", lead["id"]).execute()
+                lead["nome_lead"] = nome
+            return lead
+        
+        novo_lead = {
+            "cliente_id": cliente_id,
+            "telefone_lead": telefone,
+            "nome_lead": nome or "Lead",
+            "imovel_origem": imovel_origem,
+            "intencao": None, "bairro_preferido": None, "quartos": None,
+            "orcamento": None, "renda_mensal": None, "restricao_cpf": None,
+            "status_qualificacao": "Pendente", "notificado": False
+        }
+        insert_response = supabase.table("leads").insert(novo_lead).execute()
+        return insert_response.data[0] if insert_response.data else None
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao gerenciar lead: {e}", flush=True)
+        return None
+
+def atualizar_perfil_lead(lead_id: str, dados_perfil: dict):
+    """Atualiza os dados de qualificação coletados pela Sofia no Supabase."""
+    try:
+        supabase.table("leads").update(dados_perfil).eq("id", lead_id).execute()
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao atualizar perfil do lead: {e}", flush=True)
+
+def salvar_mensagem(lead_id: str, remetente: str, texto: str):
+    """Registra a interação na tabela de histórico."""
+    try:
+        supabase.table("historico_mensagens").insert({
+            "lead_id": lead_id,
+            "remetente": remetente,
+            "texto_mensagem": texto
+        }).execute()
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao salvar mensagem: {e}", flush=True)
+
+def buscar_contexto_conversa(lead_id: str, limite: int = 15) -> list:
+    """Resgata o histórico do banco estruturado exatamente para o padrão nativo do Gemini API."""
+    try:
+        response = supabase.table("historico_mensagens")\
+            .select("remetente", "texto_mensagem")\
+            .eq("lead_id", lead_id)\
+            .order("criado_em", desc=False)\
+            .limit(limite).execute()
+        
+        historico = []
+        for msg in response.data:
+            role = "user" if msg["remetente"] == "lead" else "model"
+            historico.append(
+                types.Content(
+                    role=role,
+                    parts=[types.Part.from_text(text=msg["texto_mensagem"])]
+                )
+            )
+        return historico
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao buscar histórico: {e}", flush=True)
+        return []
+
+# =============================================================================
+# REGRAS DE NEGÓCIO E MOTOR DE MENSAGENS
+# =============================================================================
+
+def verificar_qualificacao_dados(lead: dict) -> bool:
+    """Valida se todos os critérios do lead salvos no banco estão preenchidos."""
+    criticos = [
+        lead.get("intencao"),
+        lead.get("bairro_preferido"),
+        lead.get("quartos"),
+        lead.get("orcamento"),
+        lead.get("renda_mensal")
+    ]
+    if all(x and str(x).strip() for x in criticos) and lead.get("restricao_cpf") is not None:
+        return True
+    return False
+
+def montar_resumo_lead(lead: dict, corretor_nome: str) -> str:
+    nome = lead.get("nome_lead") or "Não informado"
+    restricao = lead.get("restricao_cpf")
+    restricao_texto = "✅ Sem restrição" if restricao is False else "⚠️ Possui restrição" if restricao is True else "Não informado"
+    imovel_texto = f"\n📸 *Imóvel de Origem ID:* {lead['imovel_origem']}" if lead.get("imovel_origem") else ""
+
+    return (
+        f"🔥 *LEAD QUENTE QUALIFICADO!*\n"
+        f"Olá {corretor_nome}, Sofia capturou um cliente:\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 *Nome:* {nome}\n"
+        f"📱 *Número:* {lead['telefone_lead']}\n"
+        f"🎯 *Intenção:* {lead['intencao']}\n"
+        f"📍 *Bairro:* {lead['bairro_preferido']}\n"
+        f"🛏️ *Quartos:* {lead['quartos']}\n"
+        f"💰 *Orçamento:* {lead['orcamento']}\n"
+        f"💼 *Renda:* {lead['renda_mensal']}\n"
+        f"📋 *Restrição CPF:* {restricao_texto}"
+        f"{imovel_texto}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"✅ Pronto para você assumir o atendimento!"
+    )
+
+def enviar_mensagem_whatsapp(instance_name: str, destino: str, texto: str) -> bool:
+    url = f"{WHATSAPP_API_URL}/message/sendText/{instance_name}"
     headers = {
         "Content-Type": "application/json",
         "apikey": WHATSAPP_API_TOKEN
     }
-    
-    # Monta o corpo da requisição (Payload) com o número do cliente e o texto da IA
+
     payload = {
-        "number": numero_cliente,
+        "number": destino,  # manda o @lid direto
+        "textMessage": {"text": texto},
         "options": {
-            "delay": 1200,       # Simula um atraso de 1.2 segundos para parecer digitação humana
-            "presence": "composing"  # Faz aparecer "Digitando..." no WhatsApp do cliente
-        },
-        "textMessage": {
-            "text": texto_resposta
+            "delay": 1200,
+            "presence": "composing"
         }
     }
 
     try:
-        # Faz o disparo real via internet para a API do WhatsApp
-        resposta_api = requests.post(url_envio, json=payload, headers=headers)
-        
-        # Se o status for 200 ou 201, o envio foi aceito pela API com sucesso
-        if resposta_api.status_code in [200, 201]:
-            print(f"[WHATSAPP] Mensagem enviada com sucesso para o número {numero_cliente}!", flush=True)
-            return True
-        else:
-            print(f"[ERRO WHATSAPP] Falha ao enviar. Status: {resposta_api.status_code} - Resposta: {resposta_api.text}", flush=True)
-            return False
-    except Exception as erro_conexao:
-        print(f"[ERRO CRÍTICO] Não foi possível conectar na API do WhatsApp: {erro_conexao}", flush=True)
+        resposta = requests.post(url, json=payload, headers=headers, timeout=10)
+        print(f"[WHATSAPP] Status HTTP: {resposta.status_code} | Body: {resposta.text[:200]}", flush=True)
+        return resposta.status_code in [200, 201]
+    except Exception as e:
+        print(f"[WHATSAPP] ❌ Erro: {e}", flush=True)
         return False
 
-def responder_com_gemini(numero_cliente, mensagem_cliente):
-    """
-    Função que consulta a IA da Google levando em consideração o histórico do cliente.
-    """
-    if not client:
-        return "Erro: Cliente Gemini não foi inicializado por falta de API Key."
-        
-    # Se o número não tiver histórico, inicializa uma lista vazia
-    if numero_cliente not in historico_conversas:
-        historico_conversas[numero_cliente] = []
-        
-    # Adiciona a nova mensagem do cliente ao histórico dele
-    historico_conversas[numero_cliente].append(f"Cliente: {mensagem_cliente}")
-    
-    # Limita o histórico para as últimas 10 mensagens para não estourar ou gastar tokens à toa
-    if len(historico_conversas[numero_cliente]) > 10:
-        historico_conversas[numero_cliente] = historico_conversas[numero_cliente][-10:]
-        
-    # Junta todo o histórico acumulado em um único bloco de texto
-    contexto_conversas = "\n".join(historico_conversas[numero_cliente])
+# =============================================================================
+# PARSER EXCLUSIVO E MOTOR DA IA
+# =============================================================================
 
-    prompt_sistema = (
-        "Você é uma corretora de imóveis profissional, muito educada, empática e prestativa.\n"
-        "Sua missão é responder à última mensagem do cliente com base no histórico da conversa abaixo. "
-        "Seu objetivo essencial, conforme nosso modelo de vendas, é qualificar o lead: entender o perfil dele "
-        "(se deseja comprar ou alugar, localização preferida, quantidade de quartos, vagas de garagem e o orçamento estimado).\n"
-        "Conduza o diálogo de forma natural e humanizada para agendar uma visita física ou uma ligação telefônica detalhada.\n"
-        "Responda de maneira objetiva, evite blocos longos de texto e use emojis de forma moderada.\n\n"
-        "--- HISTÓRICO DA CONVERSA ---\n"
-        f"{contexto_conversas}\n"
-        "------------------------------\n"
-        "Resposta do Corretor:"
+def parser_evolution(payload: dict) -> Optional[dict]:
+
+    """Parser robusto para o formato real da Evolution API."""
+    try:
+        event = payload.get("event", "")
+        if event not in ["messages.upsert", "messages.update"]:
+            return None
+
+        data = payload.get("data", {})
+        key = data.get("key", {})
+
+        print(f"[DEBUG] KEY COMPLETA: {key}", flush=True)
+
+        # Ignora mensagens enviadas pelo próprio bot
+        if key.get("fromMe"):
+            return None
+
+        jid_bruto = key.get("remoteJid") or ""
+        print(f"[DEBUG] JID BRUTO EXTRAÍDO: {jid_bruto}", flush=True)
+
+        # Ignora grupos
+        if "@g.us" in jid_bruto:
+            return None
+
+        # Extrai o número limpo (sem @lid, @s.whatsapp.net etc.)
+        numero_limpo = jid_bruto.split("@")[0]
+
+        # Extrai a mensagem de texto (tenta os campos mais comuns)
+        message = data.get("message", {})
+        mensagem = (
+            message.get("conversation")
+            or message.get("extendedTextMessage", {}).get("text")
+            or message.get("imageMessage", {}).get("caption")
+            or ""
+        )
+
+        if not mensagem:
+            return None
+
+        # Nome do contato (pushName)
+        nome = data.get("pushName") or "Lead"
+
+        return {
+            "instance_name": payload.get("instance"),
+            "numero": numero_limpo,
+            "jid": jid_bruto,
+            "nome": nome,
+            "mensagem": mensagem
+        }
+    except Exception as e:
+        print(f"[PARSER] ❌ Erro: {e}", flush=True)
+        return None
+
+def responder_com_gemini(tenant: dict, lead: dict, mensagem_nova: str) -> str:
+    if not client:
+        return "Desculpe, nosso sistema está em manutenção."
+
+    # 1. Salva a nova mensagem recebida do usuário no banco
+    salvar_mensagem(lead["id"], "lead", mensagem_nova)
+
+    # 2. Resgata o histórico atualizado convertendo para o formato da API
+    historico_completo = buscar_contexto_conversa(lead["id"], limite=15)
+    
+    contexto_imovel = f"\n⚠️ CONTEXTO DO IMÓVEL DE ORIGEM INTERESSE ID: {lead['imovel_origem']}\n" if lead.get("imovel_origem") else ""
+    
+    perfil_texto = (
+        f"\n📋 PERFIL COLETADO ATÉ AGORA NO BANCO:\n"
+        f"- Intenção: {lead.get('intencao') or 'Não coletado'}\n"
+        f"- Bairro: {lead.get('bairro_preferido') or 'Não coletado'}\n"
+        f"- Quartos: {lead.get('quartos') or 'Não coletado'}\n"
+        f"- Orçamento: {lead.get('orcamento') or 'Não coletado'}\n"
+        f"- Renda: {lead.get('renda_mensal') or 'Não coletado'}\n"
+        f"- Restrição CPF: {lead.get('restricao_cpf') if lead.get('restricao_cpf') is not None else 'Não coletado'}\n"
     )
 
-    # Lista otimizada de modelos para o SDK moderno
-    modelos_para_testar = ['gemini-2.5-flash', 'gemini-2.5-pro']
-    ultimo_erro = None
+    instrucao_sistema = (
+        "Você é Sofia, corretora virtual empática e direta de uma imobiliária parceira. Conversa humanizada via WhatsApp.\n"
+        "Sua missão é coletar 6 dados cruciais (um por vez, de forma fluida na conversa, sem parecer um questionário técnico):\n"
+        "1. Intenção (comprar/alugar) | 2. Bairro preferido | 3. Qtd quartos | 4. Orçamento máximo | 5. Renda mensal | 6. Restrição CPF (pergunte de forma sutil).\n\n"
+        "REGRAS CRÍTICAS:\n"
+        "- Faça apenas UMA pergunta por mensagem.\n"
+        "- Dê respostas curtas, acolhedoras, direto ao ponto e use emojis discretos.\n"
+        f"{contexto_imovel}"
+        f"{perfil_texto}\n"
+        "QUANDO COLETAR OS 6 CRITÉRIOS COMPLETOS:\n"
+        "Informe cordialmente ao cliente que o especialista humano vai dar continuidade por ali. "
+        "E inclua OBRIGATORIAMENTE no final da mensagem o bloco de dados estruturado exatamente neste formato para o sistema ler:\n"
+        "[PERFIL]\n"
+        "intencao: <comprar ou alugar>\n"
+        "bairro: <nome do bairro>\n"
+        "quartos: <quantidade>\n"
+        "orcamento: <valor>\n"
+        "renda: <valor>\n"
+        "restricao: <True se tiver restrição / False se não tiver>\n"
+        "[/PERFIL]"
+    )
 
-    for modelo in modelos_para_testar:
-        try:
-            print(f"[IA] Tentando conectar usando o modelo estável: {modelo}...", flush=True)
-            response = client.models.generate_content(
-                model=modelo,
-                contents=prompt_sistema,
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=historico_completo,
+            config=types.GenerateContentConfig(
+                system_instruction=instrucao_sistema,
+                temperature=0.7
             )
-            
-            resposta_texto = response.text
-            
-            # Salva a resposta da própria IA no histórico para ela lembrar do que disse antes
-            historico_conversas[numero_cliente].append(f"Corretor: {resposta_texto}")
-            
-            return resposta_texto
-        except Exception as e:
-            ultimo_erro = e
-            print(f"[AVISO] O modelo {modelo} falhou. Tentando o próximo modelo da lista...", flush=True)
-            continue
-            
-    return f"Erro crítico: Nenhum modelo disponível respondeu. Detalhes: {ultimo_erro}"
+        )
+        resposta_completa = response.text
+    except Exception as e:
+        print(f"[IA] ❌ Gemini falhou na geração: {e}", flush=True)
+        return "Tive uma pequena oscilação na conexão. Pode repetir por favor? 🙏"
 
+    if not resposta_completa:
+        return "Tive uma pequena oscilação na conexão. Pode repetir por favor? 🙏"
+
+    # 3. Processamento e Extração de Tags da IA
+    match_perfil = re.search(r"\[PERFIL\](.*?)\[/PERFIL\]", resposta_completa, re.DOTALL | re.IGNORECASE)
+    dados_atualizacao = {}
+    
+    if match_perfil:
+        bloco = match_perfil.group(1).strip()
+        for linha in bloco.splitlines():
+            if ":" in linha:
+                chave, valor = linha.split(":", 1)
+                chave = chave.strip().lower()
+                valor = valor.strip()
+
+                if chave == "intencao":   dados_atualizacao["intencao"] = valor
+                if chave == "bairro":     dados_atualizacao["bairro_preferido"] = valor
+                if chave == "quartos":    dados_atualizacao["quartos"] = valor
+                if chave == "orcamento":  dados_atualizacao["orcamento"] = valor
+                if chave == "renda":      dados_atualizacao["renda_mensal"] = valor
+                if chave == "restricao":  dados_atualizacao["restricao_cpf"] = valor.lower() == "true"
+
+        if dados_atualizacao:
+            dados_atualizacao["status_qualificacao"] = "Qualificado"
+            atualizar_perfil_lead(lead["id"], dados_perfil=dados_atualizacao)
+            lead.update(dados_atualizacao)
+
+    # 4. Verificação de Handoff direto com dados atualizados do banco
+    if verificar_qualificacao_dados(lead) and not lead.get("notificado"):
+        if tenant.get("numero_corretor_handoff"):
+            resumo_corretor = montar_resumo_lead(lead, tenant.get("nome_corretor_handoff", "Corretor"))
+            if enviar_mensagem_whatsapp(tenant["instance_name"], tenant["numero_corretor_handoff"], resumo_corretor):
+                atualizar_perfil_lead(lead["id"], {"notificado": True})
+                lead["notificado"] = True
+
+    # Limpeza da Resposta técnica para o cliente final não ver as tags
+    resposta_limpa = re.sub(r"\[PERFIL\].*?\[/PERFIL\]", "", resposta_completa, flags=re.DOTALL | re.IGNORECASE).strip()
+    
+    # 5. Salva a resposta limpa gerada pela Sofia no histórico do banco
+    salvar_mensagem(lead["id"], "sofia", resposta_limpa)
+
+    return resposta_limpa
+
+# =============================================================================
+# ROTA PRINCIPAL DO WEBHOOK (SAAS ORQUESTRADOR)
+# =============================================================================
 @app.route('/', methods=['GET', 'HEAD'])
 def home():
-    """Rota de verificação de saúde do Render (Health Check)"""
-    return "Sistema de Automação Imobiliária Ativo", 200
+    return "Sofia IA — SaaS Core Ativo ✅", 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """
-    Rota principal que recebe as mensagens do Webhook.
-    """
-    dados = request.get_json()
-    
-    if not dados:
-        return jsonify({"status": "erro", "mensagem": "Nenhum dado recebido"}), 400
-        
-    # Capturamos os dados enviados pelo webhook
-    numero_remetente = dados.get('numero', '5511999999999')
-    nome_cliente = dados.get('nome', 'Cliente')
-    texto_mensagem = dados.get('mensagem', '')
-    
-    print(f"\n[WHATSAPP] Nova mensagem recebida de {nome_cliente} ({numero_remetente})!", flush=True)
-    print(f"[WHATSAPP] Texto: '{texto_mensagem}'", flush=True)
-    print("[IA] Iniciando chamada com os servidores da Google Gemini...", flush=True)
-    
-    # Gera a resposta inteligente usando o Gemini (passando o número para a memória)
-    resposta_ia = responder_com_gemini(numero_remetente, texto_mensagem)
-    
-    print("\n==================================================", flush=True)
-    print(f"[IA RESPOSTA PARA {nome_cliente.upper()}]:", flush=True)
-    print(resposta_ia, flush=True)
-    print("==================================================\n", flush=True)
-    
-    # Envia automaticamente para o WhatsApp do cliente (se configurado)
-    enviar_mensagem_whatsapp(numero_remetente, resposta_ia)
-    
-    return jsonify({"status": "sucesso", "resposta": resposta_ia}), 200
+    payload = request.get_json()
+    if not payload:
+        return jsonify({"status": "erro", "mensagem": "Sem JSON"}), 400
 
-def rotina_segundo_plano():
-    """Thread paralela para simulações e logs de rotina"""
-    time.sleep(10)
-    
-    print("[TESTE MULTI-MENSAGEM] Iniciando simulação da Mariana testando a nova memória...", flush=True)
-    
-    
-    with app.test_client() as simulador:
-        # Mensagem 1
-        simulador.post('/webhook', json={
-            "nome": "Mariana",
-            "numero": "5521988888888",
-            "mensagem": "Olá, gostaria de ver uma casa de 3 quartos."
-        })
-        
-        time.sleep(5)
-        
-        # Mensagem 2 (Sem dizer quantos quartos ou o que quer, para testar se o bot lembra)
-        simulador.post('/webhook', json={
-            "nome": "Mariana",
-            "numero": "5521988888888",
-            "mensagem": "De preferência perto do centro. Quanto custa mais ou menos?"
-        })
-    
-    while True:
-        time.sleep(15)
-        print("[LOG] Monitorando banco de dados de imóveis e novas mensagens...", flush=True)
+    # 🔍 PRINT DIAGNÓSTICO: Mostra resumidamente o que está chegando para sabermos as chaves exatas
+    print(f"\n[DEBUG PAYLOAD] Evento recebido: {payload.get('event')} | Instance: {payload.get('instance')}", flush=True)
+    if "data" in payload and "message" in payload["data"]:
+        print(f"[DEBUG MSG] Chaves dentro de message: {list(payload['data']['message'].keys())}", flush=True)
 
+    # 🚀 PASSO 0: Decodificação e extração segura do Payload
+    dados_processados = parser_evolution(payload)
+    if not dados_processados:
+        return jsonify({"status": "ignorado", "mensagem": "Mensagem gerada pelo bot ou inválida"}), 200
+
+    instance_name = dados_processados["instance_name"]
+    numero        = dados_processados["numero"]
+    jid_origem    = dados_processados["jid"]
+    nome          = dados_processados["nome"]
+    mensagem      = dados_processados["mensagem"]
+
+    if not mensagem:
+        return jsonify({"status": "sucesso", "mensagem": "Sem conteúdo textual"}), 200
+
+    imovel_id = payload.get("data", {}).get("message", {}).get("extendedTextMessage", {}).get("contextInfo", {}).get("externalAdReply", {}).get("title", None)
+
+    tenant = verificar_tenant(instance_name)
+    if not tenant:
+        return jsonify({"status": "bloqueado", "mensagem": "Instância inativa ou inadimplente. Execução interrompida."}), 200
+
+    print(f"\n[SaaS Webhook] Cliente ativo: {instance_name} | Mensagem de {nome} ({numero})", flush=True)
+
+    lead = obter_ou_criar_lead(tenant["cliente_id"], telefone=numero, nome=nome, imovel_origem=imovel_id)
+    if not lead:
+        print("❌ [RASTREAMENTO] Falhou ao obter ou criar o lead no Supabase!", flush=True)
+        return jsonify({"status": "erro", "mensagem": "Falha na persistência dos dados."}), 500
+
+    print("👉 [RASTREAMENTO] Passo 2 Concluído. Chamando o Gemini...", flush=True)
+
+    resposta = responder_com_gemini(tenant, lead, mensagem)
+    
+    print(f"👉 [RASTREAMENTO] Gemini respondeu: {resposta[:30]}...", flush=True)
+
+    enviou = enviar_mensagem_whatsapp(instance_name, jid_origem, resposta)
+    print(f"👉 [RASTREAMENTO] Status do envio na API: {enviou}", flush=True)
+
+    return jsonify({
+        "status": "sucesso",
+        "tenant_id": tenant["id"],
+        "lead_id": lead["id"],
+        "qualificado": lead.get("qualificado", False)
+    }), 200
+
+# =============================================================================
+# INICIALIZAÇÃO DA APLICAÇÃO
+# =============================================================================
 if __name__ == '__main__':
-    print("\n--- SISTEMA DE AUTOMAÇÃO IMOBILIÁRIA ATIVO ---", flush=True)
-    print("Aguardando novas mensagens de leads do WhatsApp...\n", flush=True)
-    
-    threading.Thread(target=rotina_segundo_plano, daemon=True).start()
-        
+    print("\n" + "="*50)
+    print("  SOFIA IA — ARQUITETURA SAAS MULTI-TENANT (V3.0) — ATUALIZADO")
+    print("="*50 + "\n", flush=True)
+
     porta = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=porta, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=porta, debug=False)
