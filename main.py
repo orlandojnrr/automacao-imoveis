@@ -68,23 +68,34 @@ def verificar_tenant(instance_name: str) -> Optional[dict]:
 def obter_ou_criar_lead(cliente_id: str, telefone: str, nome: str = None, imovel_origem: str = None) -> Optional[dict]:
     """
     Busca o lead pelo telefone dentro do escopo isolado do cliente_id.
-    Se não existir, cria dinamicamente salvando o nome e imóvel de origem.
+    Se não existir, cria dinamicamente salvando o nome e imóvel de origem (apenas números se aplicável).
     """
     try:
+        # Se sua coluna 'imovel_origem' no banco for INT, limpamos para pegar apenas números do ID do anúncio.
+        # Se for TEXT no banco, pode remover a linha abaixo.
+        imovel_limpo = "".join(filter(str.isdigit, str(imovel_origem))) if imovel_origem else None
+        
         response = supabase.table("leads").select("*").eq("cliente_id", cliente_id).eq("telefone_lead", telefone).execute()
         
         if response.data:
             lead = response.data[0]
+            dados_update = {}
+    
             if nome and (not lead.get("nome_lead") or lead["nome_lead"] == "Lead") and nome != "Lead":
-                supabase.table("leads").update({"nome_lead": nome}).eq("id", lead["id"]).execute()
-                lead["nome_lead"] = nome
+                dados_update["nome_lead"] = nome
+            if imovel_limpo and lead.get("imovel_origem") != imovel_limpo:
+                dados_update["imovel_origem"] = imovel_limpo
+        
+            if dados_update:
+                supabase.table("leads").update(dados_update).eq("id", lead["id"]).execute()
+                lead.update(dados_update)
             return lead
         
         novo_lead = {
             "cliente_id": cliente_id,
             "telefone_lead": telefone,
             "nome_lead": nome or "Lead",
-            "imovel_origem": imovel_origem,
+            "imovel_origem": imovel_limpo,
             "intencao": None, "bairro_preferido": None, "quartos": None,
             "orcamento": None, "renda_mensal": None, "restricao_cpf": None,
             "status_qualificacao": "Pendente", "notificado": False
@@ -416,7 +427,7 @@ def webhook():
         "status": "sucesso",
         "tenant_id": tenant["id"],
         "lead_id": lead["id"],
-        "qualificado": lead.get("qualificado", False)
+        "qualificado": lead.get("status_qualificacao") == "Qualificado"
     }), 200
 
 # =============================================================================
