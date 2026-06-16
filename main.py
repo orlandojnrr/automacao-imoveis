@@ -29,16 +29,17 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # =============================================================================
 # CONFIGURAÇÕES DA EVOLUTION API (WhatsApp) & GEMINI
 # =============================================================================
-WHATSAPP_API_URL   = os.environ.get("WHATSAPP_API_URL", "https://sua-api-evolution.com")
-WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN", "SeuTokenGlobalAqui")
+WHATSAPP_API_URL   = os.environ.get("WHATSAPP_API_URL")
+WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN")
+
+if not WHATSAPP_API_URL or not WHATSAPP_API_TOKEN:
+    print("[CRÍTICO] ❌ WHATSAPP_API_URL ou WHATSAPP_API_TOKEN não configuradas!", flush=True)
 
 api_key = os.environ.get("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key) if api_key else None
+if not api_key:
+    print("[CRÍTICO] ❌ GEMINI_API_KEY não encontrada no ambiente!", flush=True)
 
 client = genai.Client(api_key=api_key) if api_key else None
-
-if not client:
-    print("[AVISO] Chave GEMINI_API_KEY não encontrada.", flush=True)
 
 # =============================================================================
 # CAMADA DE PERSISTÊNCIA E LOGICA MULTI-TENANT (SUPABASE)
