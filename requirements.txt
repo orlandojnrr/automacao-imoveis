@@ -3,3 +3,5 @@ google-genai
 requests
 supabase
 python-dotenv
+google-api-core
+gunicorn
