@@ -7,10 +7,18 @@ from google.genai import types
 from supabase import create_client, Client
 from typing import Optional, Dict, Any
 from google.api_core.exceptions import ResourceExhausted
-
+from datetime import datetime, timezone
 # ⚡ ISSO PRECISA FICAR AQUI, ANTES DE QUALQUER LEITURA DE OS.ENVIRON!
 from dotenv import load_dotenv
+
+
 load_dotenv()
+
+# =========================
+# CONFIG GLOBAIS
+# =========================
+
+COOLDOWN_SECONDS = 12  # 👈 aqui é perfeito
 
 # =============================================================================
 # INICIALIZAÇÃO DO FLASK E SUPABASE (SaaS Stateless)
@@ -219,6 +227,33 @@ def montar_resumo_lead(lead: dict, corretor_nome: str) -> str:
         f"✅ Pronto para você assumir o atendimento!"
     )
 
+def verificar_cooldown(lead: dict) -> bool:
+    try:
+        ultima = lead.get("ultima_interacao")
+
+        if not ultima:
+            return True  # nunca interagiu → libera
+
+        ultimo_dt = datetime.fromisoformat(ultima.replace("Z", "+00:00"))
+        agora = datetime.now(timezone.utc)
+
+        diff = (agora - ultimo_dt).total_seconds()
+
+        return diff >= COOLDOWN_SECONDS
+
+    except Exception as e:
+        print(f"[COOLDOWN] erro: {e}", flush=True)
+        return True
+
+def atualizar_cooldown(lead_id: str):
+    try:
+        supabase.table("leads").update({
+            "ultima_interacao": datetime.now(timezone.utc).isoformat()
+        }).eq("id", lead_id).execute()
+
+    except Exception as e:
+        print(f"[COOLDOWN] erro update: {e}", flush=True)
+
 def enviar_mensagem_whatsapp(instance_name: str, destino: str, texto: str) -> bool:
     url = f"{WHATSAPP_API_URL}/message/sendText/{instance_name}"
     headers = {
@@ -300,6 +335,15 @@ def parser_evolution(payload: dict) -> Optional[dict]:
 def responder_com_gemini(tenant: dict, lead: dict, mensagem_nova: str) -> str:
     if not client:
         return "Desculpe, nosso sistema está em manutenção."
+
+# 🧊 COOLDOWN CHECK
+    if not verificar_cooldown(lead):
+        print("[COOLDOWN] bloqueando Gemini (spam)", flush=True)
+        salvar_mensagem(lead["id"], "lead", mensagem_nova)
+        return ""
+
+    # atualiza antes de chamar IA (evita flood paralelo)
+    atualizar_cooldown(lead["id"])
 
     # 1. Salva a nova mensagem recebida do usuário no banco
     salvar_mensagem(lead["id"], "lead", mensagem_nova)
@@ -432,8 +476,8 @@ def responder_com_gemini(tenant: dict, lead: dict, mensagem_nova: str) -> str:
             if verificar_qualificacao_dados(lead_temp):
                 dados_atualizacao["status_qualificacao"] = "Qualificado"
                 
-            atualizar_perfil_lead(lead["id"], dados_perfil=dados_atualizacao)
-            lead.update(dados_atualizacao)
+                atualizar_perfil_lead(lead["id"], dados_perfil=dados_atualizacao)
+                lead.update(dados_atualizacao)
 
     # 4. Verificação de Handoff direto com dados atualizados do banco
     if verificar_qualificacao_dados(lead) and not lead.get("notificado"):
@@ -463,20 +507,27 @@ def home():
     return "Sofia IA — SaaS Core Ativo ✅", 200
 
 @app.route('/webhook', methods=['POST'])
+@app.route('/webhook', methods=['POST'])
 def webhook():
     payload = request.get_json()
+
     if not payload:
         return jsonify({"status": "erro", "mensagem": "Sem JSON"}), 400
 
-    # 🔍 PRINT DIAGNÓSTICO: Mostra resumidamente o que está chegando para sabermos as chaves exatas
-    print(f"\n[DEBUG PAYLOAD] Evento recebido: {payload.get('event')} | Instance: {payload.get('instance')}", flush=True)
-    if "data" in payload and "message" in payload["data"]:
-        print(f"[DEBUG MSG] Chaves dentro de message: {list(payload['data']['message'].keys())}", flush=True)
+    # 🔍 DEBUG
+    print(f"\n[DEBUG PAYLOAD] Evento: {payload.get('event')} | Instance: {payload.get('instance')}", flush=True)
 
-    # 🚀 PASSO 0: Decodificação e extração segura do Payload
+    if "data" in payload and "message" in payload["data"]:
+        print(f"[DEBUG MSG] Keys: {list(payload['data']['message'].keys())}", flush=True)
+
+    # 🚀 Parser seguro
     dados_processados = parser_evolution(payload)
+
     if not dados_processados:
-        return jsonify({"status": "ignorado", "mensagem": "Mensagem gerada pelo bot ou inválida"}), 200
+        return jsonify({
+            "status": "ignorado",
+            "mensagem": "Mensagem gerada pelo bot ou inválida"
+        }), 200
 
     instance_name = dados_processados["instance_name"]
     numero        = dados_processados["numero"]
@@ -487,27 +538,60 @@ def webhook():
     if not mensagem:
         return jsonify({"status": "sucesso", "mensagem": "Sem conteúdo textual"}), 200
 
-    imovel_id = payload.get("data", {}).get("message", {}).get("extendedTextMessage", {}).get("contextInfo", {}).get("externalAdReply", {}).get("title", None)
+    # 🔎 tentativa de extrair imóvel origem
+    imovel_id = (
+        payload.get("data", {})
+        .get("message", {})
+        .get("extendedTextMessage", {})
+        .get("contextInfo", {})
+        .get("externalAdReply", {})
+        .get("title", None)
+    )
 
+    # 🧠 valida tenant
     tenant = verificar_tenant(instance_name)
+
     if not tenant:
-        return jsonify({"status": "bloqueado", "mensagem": "Instância inativa ou inadimplente. Execução interrompida."}), 200
+        return jsonify({
+            "status": "bloqueado",
+            "mensagem": "Instância inativa ou inadimplente"
+        }), 200
 
-    print(f"\n[SaaS Webhook] Cliente ativo: {instance_name} | Mensagem de {nome} ({numero})", flush=True)
+    print(f"\n[SaaS] Cliente ativo: {instance_name} | Lead: {nome} ({numero})", flush=True)
 
-    lead = obter_ou_criar_lead(tenant["cliente_id"], telefone=numero, nome=nome, imovel_origem=imovel_id)
+    # 👤 lead
+    lead = obter_ou_criar_lead(
+        tenant["cliente_id"],
+        telefone=numero,
+        nome=nome,
+        imovel_origem=imovel_id
+    )
+
     if not lead:
-        print("❌ [RASTREAMENTO] Falhou ao obter ou criar o lead no Supabase!", flush=True)
-        return jsonify({"status": "erro", "mensagem": "Falha na persistência dos dados."}), 500
+        print("❌ Falha ao obter/criar lead", flush=True)
+        return jsonify({"status": "erro", "mensagem": "Falha no Supabase"}), 500
 
-    print("👉 [RASTREAMENTO] Passo 2 Concluído. Chamando o Gemini...", flush=True)
+    print("👉 Chamando Gemini...", flush=True)
 
+    # 🤖 IA
     resposta = responder_com_gemini(tenant, lead, mensagem)
-    
-    print(f"👉 [RASTREAMENTO] Gemini respondeu: {resposta}", flush=True)
 
+    print(f"👉 Gemini respondeu: {resposta}", flush=True)
+
+    # 🧊 se vazio (cooldown ou erro), não envia nada
+    if not resposta or not resposta.strip():
+        print("[COOLDOWN/IA] Resposta vazia — nada será enviado", flush=True)
+
+        return jsonify({
+            "status": "sucesso",
+            "tenant_id": tenant["id"],
+            "lead_id": lead["id"],
+            "qualificado": lead.get("status_qualificacao") == "Qualificado"
+        }), 200
+
+    # 📤 envio único
     enviou = enviar_mensagem_whatsapp(instance_name, jid_origem, resposta)
-    print(f"👉 [RASTREAMENTO] Status do envio na API: {enviou}", flush=True)
+    print(f"[WHATSAPP] Envio status: {enviou}", flush=True)
 
     return jsonify({
         "status": "sucesso",
@@ -515,7 +599,6 @@ def webhook():
         "lead_id": lead["id"],
         "qualificado": lead.get("status_qualificacao") == "Qualificado"
     }), 200
-
 # =============================================================================
 # INICIALIZAÇÃO DA APLICAÇÃO
 # =============================================================================
