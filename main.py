@@ -1,5 +1,4 @@
 import os
-import time
 import re
 import requests
 from flask import Flask, request, jsonify
@@ -7,6 +6,7 @@ from google import genai
 from google.genai import types
 from supabase import create_client, Client
 from typing import Optional, Dict, Any
+from google.api_core.exceptions import ResourceExhausted
 
 # ⚡ ISSO PRECISA FICAR AQUI, ANTES DE QUALQUER LEITURA DE OS.ENVIRON!
 from dotenv import load_dotenv
@@ -50,19 +50,51 @@ def verificar_tenant(instance_name: str) -> Optional[dict]:
     Regra Comercial: Checa o status financeiro no banco.
     Se estiver inadimplente ou não existir, retorna None para não gastar API.
     """
+
     try:
-        response = supabase.table("configuracoes_whatsapp").select("id", "cliente_id", "status_financeiro", "numero_corretor_handoff", "nome_corretor_handoff").eq("instance_name", instance_name).execute()
+
+        response = (
+            supabase
+            .table("configuracoes_whatsapp")
+            .select(
+                "id",
+                "cliente_id",
+                "status_financeiro",
+                "numero_corretor_handoff",
+                "nome_corretor_handoff"
+            )
+            .eq("instance_name", instance_name)
+            .execute()
+        )
+
         if response.data:
+
             tenant = response.data[0]
-            # Evita quebras se o banco retornar nulo ou letras maiúsculas
-            status = str(tenant.get("status_financeiro") or "Ativo").lower()
-            if status == "ativo" or status == "conectado":
+
+            # Evita quebra se vier nulo
+            status = str(
+                tenant.get("status_financeiro") or "Ativo"
+            ).lower()
+
+            if status in ["ativo", "conectado"]:
                 return tenant
+
             else:
-                print(f"[SaaS] 🚫 Tenant '{instance_name}' bloqueado por inadimplência/status inativo.", flush=True)
+                print(
+                    f"[SaaS] 🚫 Tenant '{instance_name}' bloqueado "
+                    f"por inadimplência/status inativo.",
+                    flush=True
+                )
+
         return None
+
     except Exception as e:
-        print(f"[SUPABASE] ❌ Erro ao verificar tenant: {e}", flush=True)
+
+        print(
+            f"[SUPABASE] ❌ Erro ao verificar tenant: {e}",
+            flush=True
+        )
+
         return None
 
 def obter_ou_criar_lead(cliente_id: str, telefone: str, nome: str = None, imovel_origem: str = None) -> Optional[dict]:
@@ -124,17 +156,17 @@ def salvar_mensagem(lead_id: str, remetente: str, texto: str):
     except Exception as e:
         print(f"[SUPABASE] ❌ Erro ao salvar mensagem: {e}", flush=True)
 
-def buscar_contexto_conversa(lead_id: str, limite: int = 15) -> list:
+def buscar_contexto_conversa(lead_id: str, limite: int = 6) -> list:
     """Resgata o histórico do banco estruturado exatamente para o padrão nativo do Gemini API."""
     try:
         response = supabase.table("historico_mensagens")\
             .select("remetente", "texto_mensagem")\
             .eq("lead_id", lead_id)\
-            .order("criado_em", desc=False)\
+            .order("criado_em", desc=True)\
             .limit(limite).execute()
         
         historico = []
-        for msg in response.data:
+        for msg in reversed(response.data):
             role = "user" if msg["remetente"] == "lead" else "model"
             historico.append(
                 types.Content(
@@ -273,7 +305,7 @@ def responder_com_gemini(tenant: dict, lead: dict, mensagem_nova: str) -> str:
     salvar_mensagem(lead["id"], "lead", mensagem_nova)
 
     # 2. Resgata o histórico atualizado convertendo para o formato da API
-    historico_completo = buscar_contexto_conversa(lead["id"], limite=15)
+    historico_completo = buscar_contexto_conversa(lead["id"], limite=6)
     
     contexto_imovel = f"\n⚠️ CONTEXTO DO IMÓVEL DE ORIGEM INTERESSE ID: {lead['imovel_origem']}\n" if lead.get("imovel_origem") else ""
     
@@ -310,6 +342,7 @@ def responder_com_gemini(tenant: dict, lead: dict, mensagem_nova: str) -> str:
     )
 
     try:
+
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=historico_completo,
@@ -318,12 +351,28 @@ def responder_com_gemini(tenant: dict, lead: dict, mensagem_nova: str) -> str:
                 temperature=0.7
             )
         )
-        resposta_completa = response.text
-    except Exception as e:
-        print(f"[IA] ❌ Gemini falhou na geração: {e}", flush=True)
-        return "Tive uma pequena oscilação na conexão. Pode repetir por favor? 🙏"
 
-    if not resposta_completa:
+        resposta_completa = getattr(response, "text", None)
+
+    except ResourceExhausted:
+
+        print("[IA] ⚠️ Limite Gemini atingido (429)", flush=True)
+
+        return (
+        "Estou recebendo muitas solicitações agora 😅 "
+        "Pode tentar novamente em alguns instantes?"
+    )
+
+    except Exception as e:
+
+        print(f"[IA] ❌ Gemini falhou na geração: {e}", flush=True)
+
+        return (
+        "Tive uma pequena oscilação na conexão. "
+        "Pode repetir por favor? 🙏"
+    )
+
+    if not resposta_completa or not str(resposta_completa).strip():
         return "Tive uma pequena oscilação na conexão. Pode repetir por favor? 🙏"
 
     # 3. Processamento e Extração de Tags da IA
@@ -343,10 +392,46 @@ def responder_com_gemini(tenant: dict, lead: dict, mensagem_nova: str) -> str:
                 if chave == "quartos":    dados_atualizacao["quartos"] = valor
                 if chave == "orcamento":  dados_atualizacao["orcamento"] = valor
                 if chave == "renda":      dados_atualizacao["renda_mensal"] = valor
-                if chave == "restricao":  dados_atualizacao["restricao_cpf"] = valor.lower() == "true"
+                if chave == "restricao":
+
+                    texto = valor.lower().strip()
+
+                    positivos = [
+                        "true",
+                        "sim",
+                        "possui",
+                        "tenho"
+                    ]
+
+                    negativos = [
+                        "false",
+                        "não",
+                        "nao",
+                        "não possui",
+                        "nao possui",
+                        "não tenho",
+                        "nao tenho",
+                        "não possuo",
+                        "nao possuo",
+                        "não que eu saiba",
+                        "nao que eu saiba",
+                        "sem restrição",
+                        "sem restricao"
+                    ]
+
+                    if texto in positivos:
+                        dados_atualizacao["restricao_cpf"] = True
+
+                    elif texto in negativos:
+                        dados_atualizacao["restricao_cpf"] = False
 
         if dados_atualizacao:
-            dados_atualizacao["status_qualificacao"] = "Qualificado"
+
+            lead_temp = {**lead, **dados_atualizacao}
+
+            if verificar_qualificacao_dados(lead_temp):
+                dados_atualizacao["status_qualificacao"] = "Qualificado"
+                
             atualizar_perfil_lead(lead["id"], dados_perfil=dados_atualizacao)
             lead.update(dados_atualizacao)
 
@@ -362,7 +447,11 @@ def responder_com_gemini(tenant: dict, lead: dict, mensagem_nova: str) -> str:
     resposta_limpa = re.sub(r"\[PERFIL\].*?\[/PERFIL\]", "", resposta_completa, flags=re.DOTALL | re.IGNORECASE).strip()
     
     # 5. Salva a resposta limpa gerada pela Sofia no histórico do banco
-    salvar_mensagem(lead["id"], "sofia", resposta_limpa)
+    if (
+        "oscilação" not in resposta_limpa.lower()
+        and "muitas solicitações" not in resposta_limpa.lower()
+    ):
+        salvar_mensagem(lead["id"], "sofia", resposta_limpa)
 
     return resposta_limpa
 
