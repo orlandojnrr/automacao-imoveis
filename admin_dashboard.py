@@ -38,6 +38,111 @@ str_app.markdown("""
             color: white;
             margin-bottom: 20px;
         }
+
+        /* ===================== TELA DE LOGIN ===================== */
+        [data-testid="stAppViewContainer"] > .main {
+            background:
+                radial-gradient(circle at 18% 20%, rgba(124,58,237,0.16), transparent 38%),
+                radial-gradient(circle at 82% 78%, rgba(99,102,241,0.14), transparent 42%),
+                #09090b;
+        }
+
+        .login-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 4vh;
+        }
+
+        .login-badge {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            margin-bottom: 18px;
+            background: linear-gradient(135deg, #7d33ff 0%, #5b21b6 100%);
+            box-shadow: 0 8px 24px rgba(124,58,237,0.45);
+        }
+
+        .login-title {
+            color: #fafafa;
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin: 0;
+            text-align: center;
+            letter-spacing: -0.01em;
+        }
+
+        .login-subtitle {
+            color: #71717a;
+            font-size: 0.9rem;
+            margin: 0.35rem 0 1.8rem 0;
+            text-align: center;
+        }
+
+        .login-card {
+            width: 100%;
+            background: linear-gradient(180deg, #15151a 0%, #111114 100%);
+            border: 1px solid #232328;
+            border-radius: 18px;
+            padding: 2.1rem 2rem 1.6rem 2rem;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.55);
+        }
+
+        .login-card label {
+            color: #a1a1aa !important;
+            font-size: 0.82rem !important;
+            font-weight: 500 !important;
+        }
+
+        .login-card [data-testid="stTextInput"] input {
+            background-color: #0c0c0f !important;
+            border: 1px solid #2a2a31 !important;
+            border-radius: 10px !important;
+            color: #fafafa !important;
+            padding: 0.65rem 0.85rem !important;
+        }
+
+        .login-card [data-testid="stTextInput"] input:focus {
+            border-color: #7d33ff !important;
+            box-shadow: 0 0 0 3px rgba(124,58,237,0.18) !important;
+        }
+
+        .login-card .stButton button {
+            background: linear-gradient(135deg, #7d33ff 0%, #6425e0 100%);
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            font-weight: 600;
+            padding: 0.65rem 0;
+            margin-top: 0.4rem;
+            transition: filter 0.15s ease, transform 0.05s ease;
+        }
+
+        .login-card .stButton button:hover {
+            filter: brightness(1.08);
+        }
+
+        .login-card .stButton button:active {
+            transform: scale(0.99);
+        }
+
+        .login-footnote {
+            text-align: center;
+            color: #52525b;
+            font-size: 0.78rem;
+            margin-top: 1.4rem;
+        }
+
+        .login-footnote code {
+            background: #1c1c21;
+            padding: 1px 6px;
+            border-radius: 5px;
+            color: #a78bfa;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -47,21 +152,33 @@ if "authenticated" not in str_app.session_state:
 
 def render_login():
     # Cria colunas para centralizar o conteúdo
-    c1, c2, c3 = str_app.columns([1, 2, 1])
-    
+    c1, c2, c3 = str_app.columns([1, 1.1, 1])
+
     with c2:
-        str_app.markdown('<div class="header-box"><h3>Painel de Controle Sofia (Admin)</h3></div>', unsafe_allow_html=True)
-        str_app.markdown('<div class="login-box">', unsafe_allow_html=True)
-        
-        user_input = str_app.text_input("Usuário", key="u_input")
-        pass_input = str_app.text_input("Senha", type="password", key="p_input")
-        
+        str_app.markdown("""
+            <div class="login-wrapper">
+                <div class="login-badge">⚡</div>
+                <p class="login-title">Sofia IA — Core Admin</p>
+                <p class="login-subtitle">Painel de controle restrito · acesso administrativo</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+        str_app.markdown('<div class="login-card">', unsafe_allow_html=True)
+
+        user_input = str_app.text_input("Usuário", key="u_input", placeholder="seu usuário de acesso")
+        pass_input = str_app.text_input("Senha", type="password", key="p_input", placeholder="••••••••")
+
         if str_app.button("Acessar Dashboard", use_container_width=True):
             if user_input == ADMIN_USER and pass_input == ADMIN_PASSWORD:
                 str_app.session_state["authenticated"] = True
                 str_app.rerun()
             else:
                 str_app.error("Credenciais inválidas.")
+
+        str_app.markdown(
+            '<p class="login-footnote">Ambiente protegido · variável <code>ADMIN_PASSWORD</code></p>',
+            unsafe_allow_html=True
+        )
         str_app.markdown('</div>', unsafe_allow_html=True)
 
 if not str_app.session_state["authenticated"]:
