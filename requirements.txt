@@ -5,3 +5,6 @@ supabase
 python-dotenv
 google-api-core
 gunicorn
+streamlit
+pandas
+plotly
