@@ -10,6 +10,85 @@ from dotenv import load_dotenv
 # Carrega chaves de ambiente
 load_dotenv()
 
+# --- CONFIGURAÇÃO INICIAL (LOGIN) ---
+str_app.set_page_config(page_title="Sofia IA - Core Admin", layout="wide", page_icon="⚡")
+
+# Definição das credenciais via ambiente
+ADMIN_USER = os.getenv("ADMIN_USER")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+
+# --- UI CSS CUSTOMIZADO (LOGIN + DASHBOARD) ---
+str_app.markdown("""
+    <style>
+        /* Estilos Gerais */
+        html, body, [data-testid="stAppViewContainer"] {
+            background-color: #09090b !important;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+        }
+        
+        /* Container de Login */
+        .login-container {
+            padding: 40px;
+            border-radius: 20px;
+            background-color: #161b22;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            text-align: center;
+            border: 1px solid #30363d;
+        }
+        
+        /* Inputs */
+        .stTextInput > div > div > input {
+            background-color: #09090b !important;
+            color: white !important;
+            border-radius: 10px !important;
+            border: 1px solid #30363d !important;
+        }
+        
+        /* Botões */
+        div.stButton > button {
+            width: 100%;
+            border-radius: 10px !important;
+            background-color: #7d33ff !important;
+            color: white !important;
+            font-weight: bold !important;
+            height: 3em !important;
+            border: none !important;
+        }
+        
+        /* Estilos do Dashboard */
+        [data-testid="stMetricContainer"] { background-color: #18181b !important; border: 1px solid #27272a !important; padding: 1.25rem !important; border-radius: 6px !important; }
+        [data-testid="stSidebar"] { background-color: #0c0c0e !important; border-right: 1px solid #27272a !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+# Lógica de Autenticação
+if "authenticated" not in str_app.session_state:
+    str_app.session_state["authenticated"] = False
+
+def login_screen():
+    col1, col2, col3 = str_app.columns([1, 2, 1])
+    with col2:
+        str_app.markdown('<div class="login-container">', unsafe_allow_html=True)
+        str_app.image("https://cdn-icons-png.flaticon.com/512/6195/6195699.png", width=80)
+        str_app.subheader("Painel de Controle Sofia IA")
+        
+        user_input = str_app.text_input("Usuário")
+        pass_input = str_app.text_input("Senha", type="password")
+        
+        if str_app.button("Acessar Dashboard"):
+            if user_input == ADMIN_USER and pass_input == ADMIN_PASSWORD:
+                str_app.session_state["authenticated"] = True
+                str_app.rerun()
+            else:
+                str_app.error("Credenciais inválidas.")
+        str_app.markdown('</div>', unsafe_allow_html=True)
+
+if not str_app.session_state["authenticated"]:
+    login_screen()
+    str_app.stop()
+
+# --- SE O USUÁRIO ESTIVER LOGADO, CONTINUA O DASHBOARD ---
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
@@ -18,96 +97,6 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     str_app.stop()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# Configuração da página e visual premium limpo
-str_app.set_page_config(page_title="Sofia IA - Core Admin", layout="wide", page_icon="⚡")
-
-# UI Styling Customizado (Estilo Shadcn/UI / Vercel Dark)
-str_app.markdown("""
-    <style>
-        html, body, [data-testid="stAppViewContainer"] {
-            background-color: #09090b !important;
-            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-        }
-        h1, h2, h3, h4 {
-            color: #fafafa !important;
-            font-weight: 600 !important;
-            letter-spacing: -0.025em !important;
-        }
-        [data-testid="stMetricContainer"] {
-            background-color: #18181b !important;
-            border: 1px solid #27272a !important;
-            padding: 1.25rem !important;
-            border-radius: 6px !important;
-        }
-        [data-testid="stMetricLabel"] {
-            color: #a1a1aa !important;
-            font-size: 0.875rem !important;
-            font-weight: 500 !important;
-        }
-        [data-testid="stMetricValue"] {
-            color: #fafafa !important;
-            font-size: 1.75rem !important;
-            font-weight: 700 !important;
-        }
-        blockquote {
-            background-color: #141416 !important;
-            border-left: 3px solid #3f3f46 !important;
-            color: #d4d4d8 !important;
-            padding: 0.75rem 1rem !important;
-            margin: 0.5rem 0 1.25rem 0 !important;
-            border-radius: 0 4px 4px 0 !important;
-            font-size: 0.925rem !important;
-        }
-        button[data-baseweb="tab"] {
-            color: #a1a1aa !important;
-            font-size: 0.95rem !important;
-        }
-        button[data-baseweb="tab"][aria-selected="true"] {
-            color: #fafafa !important;
-            border-bottom-color: #fafafa !important;
-        }
-        hr {
-            border-color: #27272a !important;
-        }
-
-        /* AJUSTE DO CABEÇALHO PARA MANTER O BOTÃO DE ABRIR O SIDEBAR */
-        [data-testid="stHeader"] {
-            background-color: transparent !important;
-            background: transparent !important;
-            height: 0px !important;
-        }
-        
-        [data-testid="stHeader"] button {
-            display: inline-flex !important;
-            visibility: visible !important;
-            color: #fafafa !important;
-            z-index: 999999 !important;
-        }
-
-        /* 🛑 EXTERMÍNIO COMPLETO DO BONEQUINHO DE ACESSIBILIDADE E ELEMENTOS DE STATUS */
-        div[data-testid="stAccessibility"], 
-        button[title="Accessibility options"],
-        .stAccessibility,
-        #stAccessibility,
-        [class*="st-emotion-cache-12fm6ii"] { 
-            display: none !important;
-            visibility: hidden !important;
-            opacity: 0 !important;
-            width: 0 !important;
-            height: 0 !important;
-        }
-        [data-testid="stElementToolbar"] {
-            display: none !important;
-        }
-        
-        [data-testid="stSidebar"] {
-            background-color: #0c0c0e !important;
-            border-right: 1px solid #27272a !important;
-        }
-    </style>
-""", unsafe_allow_html=True)
-
 
 # =============================================================================
 # ENGINE DE RETRIEVAL E FUNÇÕES DE INFRAESTRUTURA
