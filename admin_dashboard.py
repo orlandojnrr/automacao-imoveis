@@ -147,7 +147,7 @@ with t_mensagens:
             timestamp = r['criado_em'].strftime('%d/%m/%m %H:%M:%S') if pd.notna(r['criado_em']) else "Sem data"
             
             str_app.markdown(f"**{avatar} {autor}** (ID Lead: `{r['lead_id']}`) — *{timestamp}*")
-            str_app.blockquote(r['texto_mensagem'])
+            str_app.markdown(f"> {r['texto_mensagem']}")
     else:
         str_app.info("Histórico de mensagens vazio no banco.")
 
