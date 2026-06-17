@@ -415,7 +415,7 @@ def webhook():
 
     resposta = responder_com_gemini(tenant, lead, mensagem)
     
-    print(f"👉 [RASTREAMENTO] Gemini respondeu: {resposta[:30]}...", flush=True)
+    print(f"👉 [RASTREAMENTO] Gemini respondeu: {resposta_completa}", flush=True)
 
     enviou = enviar_mensagem_whatsapp(instance_name, jid_origem, resposta)
     print(f"👉 [RASTREAMENTO] Status do envio na API: {enviou}", flush=True)
