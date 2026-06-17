@@ -83,26 +83,30 @@ str_app.markdown("""
             text-align: center;
         }
 
-        .login-card {
-            width: 100%;
+        div[class*="st-key-login_card_container"] {
             background: linear-gradient(180deg, #15151a 0%, #111114 100%);
             border: 1px solid #232328;
             border-radius: 18px;
-            padding: 2.1rem 2rem 1.6rem 2rem;
+            padding: 1.6rem 2rem 1.2rem 2rem;
             box-shadow: 0 20px 50px rgba(0,0,0,0.55);
         }
 
-        .login-card label {
+        div[class*="st-key-login_card_container"] [data-testid="stForm"] {
+            border: none;
+            padding: 0;
+        }
+
+        div[class*="st-key-login_card_container"] label {
             color: #a1a1aa !important;
             font-size: 0.82rem !important;
             font-weight: 500 !important;
         }
 
-        .login-card [data-testid="stWidgetLabel"] {
+        div[class*="st-key-login_card_container"] [data-testid="stWidgetLabel"] {
             margin-bottom: 0.2rem;
         }
 
-        .login-card [data-testid="stElementContainer"]:first-of-type {
+        div[class*="st-key-login_card_container"] [data-testid="stElementContainer"]:first-of-type {
             margin-top: 0 !important;
         }
 
@@ -110,7 +114,7 @@ str_app.markdown("""
             margin-bottom: -0.5rem;
         }
 
-        .login-card [data-testid="stTextInput"] input {
+        div[class*="st-key-login_card_container"] [data-testid="stTextInput"] input {
             background-color: #0c0c0f !important;
             border: 1px solid #2a2a31 !important;
             border-radius: 10px !important;
@@ -118,12 +122,13 @@ str_app.markdown("""
             padding: 0.65rem 0.85rem !important;
         }
 
-        .login-card [data-testid="stTextInput"] input:focus {
+        div[class*="st-key-login_card_container"] [data-testid="stTextInput"] input:focus {
             border-color: #7d33ff !important;
             box-shadow: 0 0 0 3px rgba(124,58,237,0.18) !important;
         }
 
-        .login-card .stButton button {
+        div[class*="st-key-login_card_container"] .stButton button,
+        div[class*="st-key-login_card_container"] [data-testid="stFormSubmitButton"] button {
             background: linear-gradient(135deg, #7d33ff 0%, #6425e0 100%);
             border: none;
             border-radius: 10px;
@@ -134,11 +139,13 @@ str_app.markdown("""
             transition: filter 0.15s ease, transform 0.05s ease;
         }
 
-        .login-card .stButton button:hover {
+        div[class*="st-key-login_card_container"] .stButton button:hover,
+        div[class*="st-key-login_card_container"] [data-testid="stFormSubmitButton"] button:hover {
             filter: brightness(1.08);
         }
 
-        .login-card .stButton button:active {
+        div[class*="st-key-login_card_container"] .stButton button:active,
+        div[class*="st-key-login_card_container"] [data-testid="stFormSubmitButton"] button:active {
             transform: scale(0.99);
         }
 
@@ -407,19 +414,19 @@ def render_login():
             </div>
         """, unsafe_allow_html=True)
 
-        str_app.markdown('<div class="login-card">', unsafe_allow_html=True)
+        with str_app.container(key="login_card_container"):
+            with str_app.form(key="login_form", border=False):
+                user_input = str_app.text_input("Usuário", key="u_input", placeholder="seu usuário de acesso")
+                pass_input = str_app.text_input("Senha", type="password", key="p_input", placeholder="••••••••")
 
-        user_input = str_app.text_input("Usuário", key="u_input", placeholder="seu usuário de acesso")
-        pass_input = str_app.text_input("Senha", type="password", key="p_input", placeholder="••••••••")
+                enviou = str_app.form_submit_button("Acessar Dashboard", use_container_width=True)
 
-        if str_app.button("Acessar Dashboard", use_container_width=True):
-            if user_input == ADMIN_USER and pass_input == ADMIN_PASSWORD:
-                str_app.session_state["authenticated"] = True
-                str_app.rerun()
-            else:
-                str_app.error("Credenciais inválidas.")
-
-        str_app.markdown('</div>', unsafe_allow_html=True)
+                if enviou:
+                    if user_input == ADMIN_USER and pass_input == ADMIN_PASSWORD:
+                        str_app.session_state["authenticated"] = True
+                        str_app.rerun()
+                    else:
+                        str_app.error("Credenciais inválidas.")
 
 if not str_app.session_state["authenticated"]:
     render_login()
