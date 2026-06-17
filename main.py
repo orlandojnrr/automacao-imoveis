@@ -196,11 +196,8 @@ def enviar_mensagem_whatsapp(instance_name: str, destino: str, texto: str) -> bo
 
     payload = {
         "number": destino,  # manda o @lid direto
-        "textMessage": {"text": texto},
-        "options": {
-            "delay": 1200,
-            "presence": "composing"
-        }
+        "text": texto,
+        "delay": 1200
     }
 
     try:
