@@ -1,10 +1,13 @@
+# Base para a Sofia (main.py)
 flask
-google-genai
-requests
-supabase
-python-dotenv
-google-api-core
 gunicorn
+requests
+python-dotenv
+google-genai
+google-api-core
+supabase
+
+# Base para o Dashboard
 streamlit
 pandas
 plotly
