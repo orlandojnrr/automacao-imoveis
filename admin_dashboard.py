@@ -6,85 +6,66 @@ from datetime import datetime, timezone
 import time
 from supabase import create_client, Client
 
-# --- CONFIGURAÇÃO DE SEGURANÇA (LEITURA DIRETA) ---
-# Forçamos a leitura das variáveis que você configurou no Railway
+# --- CONFIGURAÇÃO DE SEGURANÇA ---
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "12345")
 
 # Configuração da página
 str_app.set_page_config(page_title="Sofia IA - Core Admin", layout="wide", page_icon="⚡")
 
-# --- UI CSS CORRIGIDO (Centralização Robusta) ---
+# --- UI CSS / ESTILIZAÇÃO ---
 str_app.markdown("""
     <style>
-        /* Força o container principal a ter um limite de largura e centralizar */
-        .block-container {
-            max-width: 400px !important;
-            padding-top: 10rem !important;
-            margin: auto !important;
+        /* Estilos globais para o dashboard */
+        html, body, [data-testid="stAppViewContainer"] {
+            background-color: #09090b !important;
         }
         
-        /* Estilo do card de login */
-        .login-card {
-            padding: 2.5rem;
-            border-radius: 20px;
+        /* Ajuste fino do card de login */
+        .login-box {
             background-color: #161b22;
+            padding: 30px;
+            border-radius: 15px;
             border: 1px solid #30363d;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        
+        .header-box {
+            background-color: #7d33ff;
+            padding: 15px;
+            border-radius: 10px 10px 0 0;
             text-align: center;
-        }
-
-        /* Ajusta os inputs para ficarem alinhados */
-        .stTextInput > div {
-            margin-bottom: 1rem;
-        }
-
-        /* Botão com estilo moderno */
-        div.stButton > button {
-            width: 100%;
-            background-color: #7d33ff !important;
-            color: white !important;
-            border-radius: 10px !important;
-            font-weight: 600;
-            border: none;
-            height: 45px;
-        }
-        div.stButton > button:hover {
-            background-color: #8b45ff !important;
+            color: white;
+            margin-bottom: 20px;
         }
     </style>
 """, unsafe_allow_html=True)
 
-# Lógica de Autenticação
+# --- LÓGICA DE LOGIN ---
 if "authenticated" not in str_app.session_state:
     str_app.session_state["authenticated"] = False
 
-def login_screen():
-    str_app.markdown('<div class="login-card">', unsafe_allow_html=True)
+def render_login():
+    # Cria colunas para centralizar o conteúdo
+    c1, c2, c3 = str_app.columns([1, 2, 1])
     
-    # Faixa superior de título
-    str_app.markdown("""
-        <div style="background-color: #7d33ff; padding: 10px; border-radius: 10px; margin-bottom: 20px;">
-            <h3 style="color: white; margin: 0; font-size: 18px;">Painel de Controle Sofia (Admin)</h3>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    str_app.image("https://cdn-icons-png.flaticon.com/512/6195/6195699.png", width=60)
-    
-    user_input = str_app.text_input("Usuário", key="u_input")
-    pass_input = str_app.text_input("Senha", type="password", key="p_input")
-    
-    if str_app.button("Acessar Dashboard"):
-        if user_input == ADMIN_USER and pass_input == ADMIN_PASSWORD:
-            str_app.session_state["authenticated"] = True
-            str_app.rerun()
-        else:
-            str_app.error("Credenciais inválidas.")
-    
-    str_app.markdown('</div>', unsafe_allow_html=True)
+    with c2:
+        str_app.markdown('<div class="header-box"><h3>Painel de Controle Sofia (Admin)</h3></div>', unsafe_allow_html=True)
+        str_app.markdown('<div class="login-box">', unsafe_allow_html=True)
+        
+        user_input = str_app.text_input("Usuário", key="u_input")
+        pass_input = str_app.text_input("Senha", type="password", key="p_input")
+        
+        if str_app.button("Acessar Dashboard", use_container_width=True):
+            if user_input == ADMIN_USER and pass_input == ADMIN_PASSWORD:
+                str_app.session_state["authenticated"] = True
+                str_app.rerun()
+            else:
+                str_app.error("Credenciais inválidas.")
+        str_app.markdown('</div>', unsafe_allow_html=True)
 
 if not str_app.session_state["authenticated"]:
-    login_screen()
+    render_login()
     str_app.stop()
 
 # --- INICIALIZAÇÃO SUPABASE (PÓS-LOGIN) ---
@@ -92,10 +73,18 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    str_app.error("❌ Erro de conexão com Banco de Dados.")
+    str_app.error("❌ Erro: Banco de dados não configurado.")
     str_app.stop()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# --- DASHBOARD PRINCIPAL ---
+str_app.title("🚀 Sofia IA — Dashboard Admin")
+
+# Exemplo de menu lateral
+if str_app.sidebar.button("Sair"):
+    str_app.session_state["authenticated"] = False
+    str_app.rerun()
 
 # =============================================================================
 # ENGINE DE RETRIEVAL E FUNÇÕES DE INFRAESTRUTURA
