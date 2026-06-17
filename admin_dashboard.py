@@ -5,59 +5,36 @@ import plotly.express as px
 from datetime import datetime, timezone
 import time
 from supabase import create_client, Client
-from dotenv import load_dotenv
 
-# Carrega chaves de ambiente
-load_dotenv()
+# --- CONFIGURAÇÃO DE SEGURANÇA (LEITURA DIRETA) ---
+# Forçamos a leitura das variáveis que você configurou no Railway
+ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "12345")
 
-# --- CONFIGURAÇÃO INICIAL (LOGIN) ---
+# Configuração da página
 str_app.set_page_config(page_title="Sofia IA - Core Admin", layout="wide", page_icon="⚡")
 
-# Definição das credenciais via ambiente
-ADMIN_USER = os.getenv("ADMIN_USER")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
-
-# --- UI CSS CUSTOMIZADO (LOGIN + DASHBOARD) ---
+# --- UI CSS MELHORADO (LOGIN CENTRALIZADO) ---
 str_app.markdown("""
     <style>
-        /* Estilos Gerais */
-        html, body, [data-testid="stAppViewContainer"] {
-            background-color: #09090b !important;
-            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-        }
+        /* Container principal para centralizar */
+        .block-container { max-width: 500px !important; padding-top: 5rem !important; }
         
-        /* Container de Login */
-        .login-container {
-            padding: 40px;
-            border-radius: 20px;
+        .login-card {
+            padding: 2rem;
+            border-radius: 15px;
             background-color: #161b22;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            text-align: center;
             border: 1px solid #30363d;
+            text-align: center;
         }
         
-        /* Inputs */
-        .stTextInput > div > div > input {
-            background-color: #09090b !important;
-            color: white !important;
-            border-radius: 10px !important;
-            border: 1px solid #30363d !important;
-        }
-        
-        /* Botões */
         div.stButton > button {
             width: 100%;
-            border-radius: 10px !important;
             background-color: #7d33ff !important;
             color: white !important;
-            font-weight: bold !important;
-            height: 3em !important;
-            border: none !important;
+            border-radius: 8px !important;
+            font-weight: bold;
         }
-        
-        /* Estilos do Dashboard */
-        [data-testid="stMetricContainer"] { background-color: #18181b !important; border: 1px solid #27272a !important; padding: 1.25rem !important; border-radius: 6px !important; }
-        [data-testid="stSidebar"] { background-color: #0c0c0e !important; border-right: 1px solid #27272a !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -66,34 +43,33 @@ if "authenticated" not in str_app.session_state:
     str_app.session_state["authenticated"] = False
 
 def login_screen():
-    col1, col2, col3 = str_app.columns([1, 2, 1])
-    with col2:
-        str_app.markdown('<div class="login-container">', unsafe_allow_html=True)
-        str_app.image("https://cdn-icons-png.flaticon.com/512/6195/6195699.png", width=80)
-        str_app.subheader("Painel de Controle Sofia IA")
-        
-        user_input = str_app.text_input("Usuário")
-        pass_input = str_app.text_input("Senha", type="password")
-        
-        if str_app.button("Acessar Dashboard"):
-            if user_input == ADMIN_USER and pass_input == ADMIN_PASSWORD:
-                str_app.session_state["authenticated"] = True
-                str_app.rerun()
-            else:
-                str_app.error("Credenciais inválidas.")
-        str_app.markdown('</div>', unsafe_allow_html=True)
+    str_app.markdown('<div class="login-card">', unsafe_allow_html=True)
+    str_app.image("https://cdn-icons-png.flaticon.com/512/6195/6195699.png", width=80)
+    str_app.subheader("Painel de Controle Sofia IA")
+    
+    user_input = str_app.text_input("Usuário", key="u_input")
+    pass_input = str_app.text_input("Senha", type="password", key="p_input")
+    
+    if str_app.button("Acessar Dashboard"):
+        # Log de debug interno (remova se quiser, mas ajuda a ver se o Railway carregou a senha)
+        if user_input == ADMIN_USER and pass_input == ADMIN_PASSWORD:
+            str_app.session_state["authenticated"] = True
+            str_app.rerun()
+        else:
+            str_app.error(f"Credenciais inválidas.")
+    
+    str_app.markdown('</div>', unsafe_allow_html=True)
 
 if not str_app.session_state["authenticated"]:
     login_screen()
     str_app.stop()
 
-# --- SE O USUÁRIO ESTIVER LOGADO, CONTINUA O DASHBOARD ---
-
+# --- INICIALIZAÇÃO SUPABASE (PÓS-LOGIN) ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    str_app.error("❌ Variáveis de ambiente do Supabase não configuradas!")
+    str_app.error("❌ Erro de conexão com Banco de Dados.")
     str_app.stop()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
