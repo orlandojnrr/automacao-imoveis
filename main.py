@@ -8,7 +8,6 @@ from supabase import create_client, Client
 from typing import Optional, Dict, Any
 from google.api_core.exceptions import ResourceExhausted
 from datetime import datetime, timezone
-# ⚡ ISSO PRECISA FICAR AQUI, ANTES DE QUALQUER LEITURA DE OS.ENVIRON!
 from dotenv import load_dotenv
 
 
@@ -18,7 +17,7 @@ load_dotenv()
 # CONFIG GLOBAIS
 # =========================
 
-COOLDOWN_SECONDS = 12  # 👈 aqui é perfeito
+COOLDOWN_SECONDS = 12
 
 # =============================================================================
 # INICIALIZAÇÃO DO FLASK E SUPABASE (SaaS Stateless)
@@ -33,9 +32,8 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
 # =============================================================================
-# CONFIGURAÇÕES DA EVOLUTION API (WhatsApp) & GEMINI
+# CONFIGURAÇÕES DA EVOLUTION API (WhatsApp)
 # =============================================================================
 WHATSAPP_API_URL   = os.environ.get("WHATSAPP_API_URL")
 WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN")
@@ -43,6 +41,9 @@ WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN")
 if not WHATSAPP_API_URL or not WHATSAPP_API_TOKEN:
     print("[CRÍTICO] ❌ WHATSAPP_API_URL ou WHATSAPP_API_TOKEN não configuradas!", flush=True)
 
+# =============================================================================
+# CONFIGURAÇÕES DO GEMINI
+# =============================================================================
 api_key = os.environ.get("GEMINI_API_KEY")
 if not api_key:
     print("[CRÍTICO] ❌ GEMINI_API_KEY não encontrada no ambiente!", flush=True)
@@ -336,6 +337,47 @@ def responder_com_gemini(tenant: dict, lead: dict, mensagem_nova: str) -> str:
     if not client:
         return "Desculpe, nosso sistema está em manutenção."
 
+    # 1. Define o que já temos no banco (o "estado" do lead)
+    # Isso é a "verdade" que o Gemini precisa respeitar
+    perfil_atual = {
+        "bairro": lead.get("bairro"),
+        "quartos": lead.get("quartos"),
+        "orcamento": lead.get("orcamento"),
+        "renda": lead.get("renda_mensal"),
+        "cpf_restricao": lead.get("restricao_cpf"),
+        "objetivo": lead.get("objetivo") # comprar ou alugar
+    }
+
+    # 2. Instrução de Sistema (Onde a mágica acontece)
+    # O Gemini precisa entender que ele é um preenchedor de formulário
+    system_instruction = f"""
+    Você é a Sofia, assistente da imobiliária. Seu objetivo é qualificar leads.
+    
+    ESTADO ATUAL DO LEAD: {perfil_atual}
+    
+    REGRAS DE OURO:
+    1. Olhe para o estado acima. Se o valor for None ou estiver vazio, essa é a única informação que você deve perguntar agora.
+    2. NUNCA pergunte sobre um campo que já possui um valor preenchido no estado acima.
+    3. Se todos os campos estiverem preenchidos, parabéns! Informe ao cliente que o perfil dele foi criado e que um corretor entrará em contato.
+    4. Seja breve, simpática e natural. Não pareça um robô fazendo um interrogatório.
+    """
+
+    # 3. Chamada à API com a nova mensagem
+    # Certifique-se de passar o histórico da conversa se tiver (ou pelo menos a mensagem nova)
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.0-flash', # ou o modelo que você estiver usando
+            contents=mensagem_nova,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.3 # Temperatura baixa ajuda a seguir instruções
+            )
+        )
+        return response.text
+    except Exception as e:
+        print(f"Erro na IA: {e}")
+        return ""
+
 # 🧊 COOLDOWN CHECK
     if not verificar_cooldown(lead):
         print("[COOLDOWN] bloqueando Gemini (spam)", flush=True)
@@ -475,9 +517,12 @@ def responder_com_gemini(tenant: dict, lead: dict, mensagem_nova: str) -> str:
 
             if verificar_qualificacao_dados(lead_temp):
                 dados_atualizacao["status_qualificacao"] = "Qualificado"
-                
-                atualizar_perfil_lead(lead["id"], dados_perfil=dados_atualizacao)
-                lead.update(dados_atualizacao)
+
+            # Salva SEMPRE que houver dado novo, completo ou não —
+            # antes só salvava quando já estava 100% qualificado, e por isso
+            # o perfil nunca persistia entre mensagens (loop de perguntas).
+            atualizar_perfil_lead(lead["id"], dados_perfil=dados_atualizacao)
+            lead.update(dados_atualizacao)
 
     # 4. Verificação de Handoff direto com dados atualizados do banco
     if verificar_qualificacao_dados(lead) and not lead.get("notificado"):
