@@ -3,6 +3,7 @@ import time
 import base64
 import secrets
 import requests
+import urllib.parse
 import streamlit as str_app
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -649,19 +650,129 @@ def atualizar_status_imovel(imovel_id: str, novo_status: str):
         return False
 
 
+def montar_texto_compartilhamento(dados_imovel: dict) -> str:
+    """Monta um texto-resumo do imóvel, pronto para compartilhar em redes sociais."""
+    endereco_completo = f"{dados_imovel.get('endereco', '')}, {dados_imovel.get('numero', '')} - {dados_imovel.get('bairro', '')}, {dados_imovel.get('cidade', '')}/{dados_imovel.get('estado', '')}"
+
+    partes_ambientes = []
+    if dados_imovel.get("quartos"):
+        partes_ambientes.append(f"{dados_imovel['quartos']} quarto(s)")
+    if dados_imovel.get("qtd_suites"):
+        partes_ambientes.append(f"{dados_imovel['qtd_suites']} suíte(s)")
+    if dados_imovel.get("qtd_banheiros"):
+        partes_ambientes.append(f"{dados_imovel['qtd_banheiros']} banheiro(s)")
+    if dados_imovel.get("vagas_garagem"):
+        partes_ambientes.append(f"{dados_imovel['vagas_garagem']} vaga(s) de garagem")
+
+    resumo_ambientes = " · ".join(partes_ambientes) if partes_ambientes else ""
+
+    texto = (
+        f"🏡 {dados_imovel.get('tipo_imovel', 'Imóvel')} à venda em {dados_imovel.get('bairro', '')}\n\n"
+        f"📍 {endereco_completo}\n"
+    )
+    if resumo_ambientes:
+        texto += f"🛏️ {resumo_ambientes}\n"
+    if dados_imovel.get("metragem"):
+        texto += f"📐 {dados_imovel['metragem']}m²\n"
+    texto += f"💰 {formatar_preco(dados_imovel.get('preco'))}\n"
+    if dados_imovel.get("descricao"):
+        texto += f"\n{dados_imovel['descricao']}\n"
+    texto += "\n📲 Fale comigo para mais informações!"
+    return texto
+
+
+def render_botoes_compartilhar(texto: str):
+    texto_codificado = urllib.parse.quote(texto)
+
+    link_whatsapp = f"https://wa.me/?text={texto_codificado}"
+    link_facebook = f"https://www.facebook.com/sharer/sharer.php?u=https://sofia-ia.app&quote={texto_codificado}"
+    link_telegram = f"https://t.me/share/url?url=https://sofia-ia.app&text={texto_codificado}"
+
+    str_app.markdown("##### 📣 Compartilhar este imóvel")
+    str_app.caption("O Instagram não permite compartilhamento direto por link — copie o texto abaixo e cole na publicação ou nos stories.")
+
+    c1, c2, c3 = str_app.columns(3)
+    with c1:
+        str_app.link_button("💬 WhatsApp", link_whatsapp, use_container_width=True)
+    with c2:
+        str_app.link_button("📘 Facebook", link_facebook, use_container_width=True)
+    with c3:
+        str_app.link_button("✈️ Telegram", link_telegram, use_container_width=True)
+
+    with str_app.expander("📋 Copiar texto para Instagram ou outras redes"):
+        str_app.code(texto, language=None)
+
+
 @str_app.dialog("➕ Adicionar novo imóvel", width="large")
 def modal_novo_imovel(cliente_id: str):
+    if "imovel_recem_salvo" not in str_app.session_state:
+        str_app.session_state["imovel_recem_salvo"] = None
+
+    # --- ETAPA 2: imóvel já salvo — mostra confirmação + compartilhamento ---
+    if str_app.session_state["imovel_recem_salvo"] is not None:
+        str_app.success("✅ Imóvel cadastrado com sucesso!")
+        texto_compartilhar = montar_texto_compartilhamento(str_app.session_state["imovel_recem_salvo"])
+        render_botoes_compartilhar(texto_compartilhar)
+
+        str_app.markdown("<br>", unsafe_allow_html=True)
+        if str_app.button("Fechar", use_container_width=True, type="primary"):
+            str_app.session_state["imovel_recem_salvo"] = None
+            str_app.rerun()
+        return
+
+    # --- ETAPA 1: formulário de cadastro ---
+    str_app.markdown("##### 📍 Localização")
+    col_end1, col_end2 = str_app.columns([3, 1])
+    with col_end1:
+        endereco = str_app.text_input("Endereço", placeholder="Ex: Rua das Flores")
+    with col_end2:
+        numero = str_app.text_input("Número", placeholder="Ex: 123")
+
+    col_loc1, col_loc2, col_loc3 = str_app.columns(3)
+    with col_loc1:
+        bairro = str_app.text_input("Bairro", placeholder="Ex: Jardim Planalto")
+    with col_loc2:
+        cidade = str_app.text_input("Cidade", placeholder="Ex: Parnamirim")
+    with col_loc3:
+        estado = str_app.text_input("Estado (UF)", placeholder="Ex: RN", max_chars=2)
+
+    col_cep, col_pais = str_app.columns(2)
+    with col_cep:
+        cep = str_app.text_input("Código postal (CEP)", placeholder="Ex: 59140-000")
+    with col_pais:
+        str_app.text_input("País", value="Brasil", disabled=True)
+
+    str_app.markdown("<hr>", unsafe_allow_html=True)
+    str_app.markdown("##### 🏷️ Dados do imóvel")
+
     col1, col2 = str_app.columns(2)
     with col1:
         tipo = str_app.selectbox("Tipo de imóvel", TIPOS_IMOVEL)
-        bairro = str_app.text_input("Bairro", placeholder="Ex: Jardim Planalto")
         preco = str_app.number_input("Preço (R$)", min_value=0.0, step=1000.0, format="%.2f")
-        status = str_app.selectbox("Status", STATUS_IMOVEL)
     with col2:
-        quartos = str_app.number_input("Quartos", min_value=0, step=1)
-        vagas = str_app.number_input("Vagas de garagem", min_value=0, step=1)
+        status = str_app.selectbox("Status", STATUS_IMOVEL)
         metragem = str_app.number_input("Metragem (m²)", min_value=0.0, step=1.0)
 
+    str_app.markdown("<hr>", unsafe_allow_html=True)
+    str_app.markdown("##### ✅ Ambientes (informe a quantidade de cada um)")
+
+    col_a1, col_a2, col_a3, col_a4 = str_app.columns(4)
+    with col_a1:
+        quartos = str_app.number_input("🛏️ Quartos", min_value=0, step=1)
+        qtd_suites = str_app.number_input("🛌 Suítes", min_value=0, step=1)
+    with col_a2:
+        qtd_banheiros = str_app.number_input("🚿 Banheiros", min_value=0, step=1)
+        vagas = str_app.number_input("🚗 Vagas de garagem", min_value=0, step=1)
+    with col_a3:
+        qtd_cozinha = str_app.number_input("🍳 Cozinha", min_value=0, step=1)
+        qtd_sala_estar = str_app.number_input("🛋️ Sala de estar", min_value=0, step=1)
+    with col_a4:
+        qtd_area = str_app.number_input("🌿 Área", min_value=0, step=1)
+        qtd_quintal = str_app.number_input("🏡 Quintal", min_value=0, step=1)
+
+    qtd_lavanderia = str_app.number_input("🧺 Lavanderia", min_value=0, step=1)
+
+    str_app.markdown("<hr>", unsafe_allow_html=True)
     descricao = str_app.text_area("Descrição do imóvel", placeholder="Detalhes, diferenciais, condições...")
 
     fotos = str_app.file_uploader(
@@ -679,25 +790,37 @@ def modal_novo_imovel(cliente_id: str):
     col_salvar, col_cancelar = str_app.columns(2)
     with col_salvar:
         if str_app.button("💾 Salvar imóvel", type="primary", use_container_width=True):
-            if not bairro or preco <= 0:
-                str_app.error("Preencha ao menos o bairro e o preço.")
+            if not bairro or not endereco or preco <= 0:
+                str_app.error("Preencha ao menos o endereço, o bairro e o preço.")
             else:
                 with str_app.spinner("Salvando imóvel e enviando fotos..."):
                     dados_imovel = {
                         "tipo_imovel": tipo,
+                        "endereco": endereco,
+                        "numero": numero,
                         "bairro": bairro,
+                        "cidade": cidade,
+                        "estado": estado.upper() if estado else None,
+                        "pais": "Brasil",
+                        "cep": cep,
                         "quartos": int(quartos) if quartos else None,
                         "vagas_garagem": int(vagas) if vagas else None,
                         "metragem": float(metragem) if metragem else None,
                         "preco": float(preco),
                         "status": status,
                         "descricao": descricao,
+                        "qtd_cozinha": int(qtd_cozinha),
+                        "qtd_sala_estar": int(qtd_sala_estar),
+                        "qtd_area": int(qtd_area),
+                        "qtd_quintal": int(qtd_quintal),
+                        "qtd_banheiros": int(qtd_banheiros),
+                        "qtd_suites": int(qtd_suites),
+                        "qtd_lavanderia": int(qtd_lavanderia),
                     }
                     sucesso, erro = criar_imovel(cliente_id, dados_imovel, fotos or [])
 
                 if sucesso:
-                    str_app.success("Imóvel cadastrado com sucesso!")
-                    time.sleep(1)
+                    str_app.session_state["imovel_recem_salvo"] = dados_imovel
                     str_app.rerun()
                 else:
                     str_app.error(f"Erro ao salvar: {erro}")
@@ -749,11 +872,17 @@ def render_catalogo_imoveis(cliente: dict):
                     )
 
                 cor_status = {"Disponível": "#4ade80", "Reservado": "#fb923c", "Vendido": "#f87171"}.get(imovel.get("status"), "#71717a")
+
+                endereco_resumo = f"{imovel.get('endereco', '')}, {imovel.get('numero', '')}" if imovel.get("endereco") else ""
+                cidade_estado = f"{imovel.get('cidade', '')}/{imovel.get('estado', '')}" if imovel.get("cidade") else ""
+
                 str_app.markdown(
                     f"<p style='margin:0.6rem 0 0 0; font-weight:700; color:#fafafa;'>{imovel.get('tipo_imovel', '')} · {imovel.get('bairro', '')}</p>"
-                    f"<p style='margin:0.15rem 0 0 0; font-size:1.05rem; font-weight:700; color:#c4b5fd;'>{formatar_preco(imovel.get('preco'))}</p>"
+                    f"<p style='margin:0.1rem 0 0 0; font-size:0.78rem; color:#71717a;'>{endereco_resumo}{' · ' + cidade_estado if cidade_estado else ''}</p>"
+                    f"<p style='margin:0.3rem 0 0 0; font-size:1.05rem; font-weight:700; color:#c4b5fd;'>{formatar_preco(imovel.get('preco'))}</p>"
                     f"<p style='margin:0.3rem 0 0 0; font-size:0.82rem; color:#a1a1aa;'>"
-                    f"🛏️ {imovel.get('quartos') or '–'} · 🚗 {imovel.get('vagas_garagem') or '–'} · 📐 {imovel.get('metragem') or '–'}m²</p>"
+                    f"🛏️ {imovel.get('quartos') or 0} · 🛌 {imovel.get('qtd_suites') or 0} suíte(s) · 🚿 {imovel.get('qtd_banheiros') or 0} · "
+                    f"🚗 {imovel.get('vagas_garagem') or 0} · 📐 {imovel.get('metragem') or '–'}m²</p>"
                     f"<p style='margin:0.4rem 0 0 0; font-size:0.78rem; font-weight:700; color:{cor_status};'>● {imovel.get('status', '')}</p>",
                     unsafe_allow_html=True
                 )
@@ -771,6 +900,9 @@ def render_catalogo_imoveis(cliente: dict):
                 if novo_status != imovel.get("status"):
                     atualizar_status_imovel(imovel["id"], novo_status)
                     str_app.rerun()
+
+                with str_app.popover("📣 Compartilhar", use_container_width=True):
+                    render_botoes_compartilhar(montar_texto_compartilhamento(imovel))
 
                 if str_app.button("🗑️ Excluir", key=f"del_{imovel['id']}", use_container_width=True):
                     excluir_imovel(imovel["id"])
