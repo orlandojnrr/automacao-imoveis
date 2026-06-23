@@ -600,13 +600,18 @@ def listar_imoveis(cliente_id: str):
         return []
 
 
-def fazer_upload_fotos(cliente_id: str, arquivos: list):
-    """Sobe cada arquivo de imagem para o bucket fotos-imoveis e retorna as URLs públicas."""
+def fazer_upload_fotos(auth_user_id: str, arquivos: list):
+    """Sobe cada arquivo de imagem para o bucket fotos-imoveis e retorna as URLs públicas.
+
+    O caminho usa o auth_user_id (não o cliente_id da tabela clientes_saas)
+    porque a policy RLS do bucket checa storage.foldername(name)[1] contra
+    auth.uid() — são UUIDs diferentes.
+    """
     urls = []
     for arquivo in arquivos:
         try:
             extensao = arquivo.name.split(".")[-1].lower()
-            nome_unico = f"{cliente_id}/{secrets.token_hex(8)}.{extensao}"
+            nome_unico = f"{auth_user_id}/{secrets.token_hex(8)}.{extensao}"
             conteudo = arquivo.getvalue()
 
             supabase.storage.from_("fotos-imoveis").upload(
@@ -620,10 +625,10 @@ def fazer_upload_fotos(cliente_id: str, arquivos: list):
     return urls
 
 
-def criar_imovel(cliente_id: str, dados: dict, fotos_arquivos: list):
+def criar_imovel(cliente_id: str, auth_user_id: str, dados: dict, fotos_arquivos: list):
     """Cria um novo imóvel, fazendo upload das fotos antes de salvar a linha."""
     try:
-        urls_fotos = fazer_upload_fotos(cliente_id, fotos_arquivos) if fotos_arquivos else []
+        urls_fotos = fazer_upload_fotos(auth_user_id, fotos_arquivos) if fotos_arquivos else []
         dados["cliente_id"] = cliente_id
         dados["fotos_urls"] = urls_fotos
         supabase.table("imoveis").insert(dados).execute()
@@ -704,7 +709,7 @@ def render_botoes_compartilhar(texto: str):
 
 
 @str_app.dialog("➕ Adicionar novo imóvel", width="large")
-def modal_novo_imovel(cliente_id: str):
+def modal_novo_imovel(cliente_id: str, auth_user_id: str):
     if "imovel_recem_salvo" not in str_app.session_state:
         str_app.session_state["imovel_recem_salvo"] = None
 
@@ -817,7 +822,7 @@ def modal_novo_imovel(cliente_id: str):
                         "qtd_suites": int(qtd_suites),
                         "qtd_lavanderia": int(qtd_lavanderia),
                     }
-                    sucesso, erro = criar_imovel(cliente_id, dados_imovel, fotos or [])
+                    sucesso, erro = criar_imovel(cliente_id, auth_user_id, dados_imovel, fotos or [])
 
                 if sucesso:
                     str_app.session_state["imovel_recem_salvo"] = dados_imovel
@@ -838,6 +843,7 @@ def formatar_preco(valor) -> str:
 
 def render_catalogo_imoveis(cliente: dict):
     cliente_id = cliente["id"]
+    auth_user_id = cliente["auth_user_id"]
 
     str_app.markdown("""
         <p class="page-eyebrow">Painel do Corretor</p>
@@ -847,7 +853,7 @@ def render_catalogo_imoveis(cliente: dict):
     """, unsafe_allow_html=True)
 
     if str_app.button("➕ Adicionar imóvel", type="primary"):
-        modal_novo_imovel(cliente_id)
+        modal_novo_imovel(cliente_id, auth_user_id)
 
     imoveis = listar_imoveis(cliente_id)
 
