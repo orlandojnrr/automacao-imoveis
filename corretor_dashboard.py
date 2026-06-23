@@ -607,7 +607,19 @@ def fazer_upload_fotos(auth_user_id: str, arquivos: list):
     O caminho usa o auth_user_id (não o cliente_id da tabela clientes_saas)
     porque a policy RLS do bucket checa storage.foldername(name)[1] contra
     auth.uid() — são UUIDs diferentes.
+
+    Reaplicamos a sessão no client antes do upload porque o Streamlit
+    reroda o script a cada interação, e o client supabase perde o token
+    de autenticação em memória entre as reruns — sem isso, a chamada ao
+    Storage vai como anônima e a policy RLS bloqueia com 403.
     """
+    sessao = str_app.session_state.get("auth_session")
+    if sessao:
+        try:
+            supabase.auth.set_session(sessao.access_token, sessao.refresh_token)
+        except Exception as e:
+            print(f"[AUTH] ⚠️ Não foi possível restaurar a sessão: {e}", flush=True)
+
     urls = []
     for arquivo in arquivos:
         try:
