@@ -584,6 +584,7 @@ def render_conectar_whatsapp(cliente: dict):
 # =============================================================================
 TIPOS_IMOVEL = ["Casa", "Apartamento", "Terreno", "Sala Comercial"]
 STATUS_IMOVEL = ["Disponível", "Reservado", "Vendido"]
+FINALIDADES_IMOVEL = ["Venda", "Aluguel", "Venda ou Aluguel"]
 
 
 def listar_imoveis(cliente_id: str):
@@ -671,8 +672,14 @@ def montar_texto_compartilhamento(dados_imovel: dict) -> str:
 
     resumo_ambientes = " · ".join(partes_ambientes) if partes_ambientes else ""
 
+    rotulo_finalidade = {
+        "Venda": "à venda",
+        "Aluguel": "para aluguel",
+        "Venda ou Aluguel": "à venda ou para aluguel"
+    }.get(dados_imovel.get("finalidade"), "à venda")
+
     texto = (
-        f"🏡 {dados_imovel.get('tipo_imovel', 'Imóvel')} à venda em {dados_imovel.get('bairro', '')}\n\n"
+        f"🏡 {dados_imovel.get('tipo_imovel', 'Imóvel')} {rotulo_finalidade} em {dados_imovel.get('bairro', '')}\n\n"
         f"📍 {endereco_completo}\n"
     )
     if resumo_ambientes:
@@ -753,6 +760,7 @@ def modal_novo_imovel(cliente_id: str, auth_user_id: str):
     col1, col2 = str_app.columns(2)
     with col1:
         tipo = str_app.selectbox("Tipo de imóvel", TIPOS_IMOVEL)
+        finalidade = str_app.selectbox("Finalidade", FINALIDADES_IMOVEL)
         preco = str_app.number_input("Preço (R$)", min_value=0.0, step=1000.0, format="%.2f")
     with col2:
         status = str_app.selectbox("Status", STATUS_IMOVEL)
@@ -801,6 +809,7 @@ def modal_novo_imovel(cliente_id: str, auth_user_id: str):
                 with str_app.spinner("Salvando imóvel e enviando fotos..."):
                     dados_imovel = {
                         "tipo_imovel": tipo,
+                        "finalidade": finalidade,
                         "endereco": endereco,
                         "numero": numero,
                         "bairro": bairro,
@@ -861,6 +870,61 @@ def render_catalogo_imoveis(cliente: dict):
         str_app.info("Nenhum imóvel cadastrado ainda. Clique em \"➕ Adicionar imóvel\" para começar.")
         return
 
+    # --- BUSCA E FILTROS ---
+    col_busca, col_ordenar = str_app.columns([2.5, 1.3])
+    with col_busca:
+        termo_busca = str_app.text_input(
+            "Buscar", placeholder="🔍 Buscar por endereço, bairro, cidade ou descrição...",
+            label_visibility="collapsed"
+        )
+    with col_ordenar:
+        ordenar_por = str_app.selectbox(
+            "Ordenar", ["Mais recente", "Menor preço", "Maior preço"],
+            label_visibility="collapsed"
+        )
+
+    with str_app.expander("🔧 Mais filtros"):
+        col_f1, col_f2, col_f3 = str_app.columns(3)
+        with col_f1:
+            opcoes_cidade = ["Todas"] + sorted({i["cidade"] for i in imoveis if i.get("cidade")})
+            filtro_cidade = str_app.selectbox("Cidade", opcoes_cidade)
+        with col_f2:
+            opcoes_estado = ["Todos"] + sorted({i["estado"] for i in imoveis if i.get("estado")})
+            filtro_estado = str_app.selectbox("Estado", opcoes_estado)
+        with col_f3:
+            opcoes_bairro = ["Todos"] + sorted({i["bairro"] for i in imoveis if i.get("bairro")})
+            filtro_bairro = str_app.selectbox("Bairro", opcoes_bairro)
+
+    # --- APLICA A BUSCA ---
+    if termo_busca:
+        termo_lower = termo_busca.lower()
+        imoveis = [
+            i for i in imoveis
+            if termo_lower in (i.get("endereco") or "").lower()
+            or termo_lower in (i.get("bairro") or "").lower()
+            or termo_lower in (i.get("cidade") or "").lower()
+            or termo_lower in (i.get("descricao") or "").lower()
+        ]
+
+    # --- APLICA OS FILTROS ---
+    if filtro_cidade != "Todas":
+        imoveis = [i for i in imoveis if i.get("cidade") == filtro_cidade]
+    if filtro_estado != "Todos":
+        imoveis = [i for i in imoveis if i.get("estado") == filtro_estado]
+    if filtro_bairro != "Todos":
+        imoveis = [i for i in imoveis if i.get("bairro") == filtro_bairro]
+
+    # --- APLICA A ORDENAÇÃO ---
+    if ordenar_por == "Menor preço":
+        imoveis = sorted(imoveis, key=lambda i: i.get("preco") or 0)
+    elif ordenar_por == "Maior preço":
+        imoveis = sorted(imoveis, key=lambda i: i.get("preco") or 0, reverse=True)
+    # "Mais recente" já é a ordem padrão retornada por listar_imoveis (criado_em desc)
+
+    if not imoveis:
+        str_app.warning("Nenhum imóvel encontrado com esses filtros.")
+        return
+
     str_app.markdown("<br>", unsafe_allow_html=True)
     colunas = str_app.columns(3)
 
@@ -883,7 +947,10 @@ def render_catalogo_imoveis(cliente: dict):
                 cidade_estado = f"{imovel.get('cidade', '')}/{imovel.get('estado', '')}" if imovel.get("cidade") else ""
 
                 str_app.markdown(
-                    f"<p style='margin:0.6rem 0 0 0; font-weight:700; color:#fafafa;'>{imovel.get('tipo_imovel', '')} · {imovel.get('bairro', '')}</p>"
+                    f"<p style='margin:0.6rem 0 0 0;'>"
+                    f"<span style='font-weight:700; color:#fafafa;'>{imovel.get('tipo_imovel', '')} · {imovel.get('bairro', '')}</span> "
+                    f"<span style='font-size:0.72rem; font-weight:700; color:#a78bfa; background:rgba(124,58,237,0.15); padding:1px 7px; border-radius:999px;'>{imovel.get('finalidade', 'Venda')}</span>"
+                    f"</p>"
                     f"<p style='margin:0.1rem 0 0 0; font-size:0.78rem; color:#71717a;'>{endereco_resumo}{' · ' + cidade_estado if cidade_estado else ''}</p>"
                     f"<p style='margin:0.3rem 0 0 0; font-size:1.05rem; font-weight:700; color:#c4b5fd;'>{formatar_preco(imovel.get('preco'))}</p>"
                     f"<p style='margin:0.3rem 0 0 0; font-size:0.82rem; color:#a1a1aa;'>"
