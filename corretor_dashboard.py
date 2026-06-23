@@ -1,4 +1,8 @@
 import os
+import time
+import base64
+import secrets
+import requests
 import streamlit as str_app
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -32,6 +36,12 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     str_app.stop()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# =============================================================================
+# CONFIGURAÇÃO DA EVOLUTION API
+# =============================================================================
+WHATSAPP_API_URL = os.environ.get("WHATSAPP_API_URL", "").rstrip("/")
+WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN", "")
 
 # =============================================================================
 # ESTADO DE SESSÃO
@@ -347,7 +357,228 @@ def render_cadastro():
 
 
 # =============================================================================
-# DASHBOARD PRINCIPAL (placeholder — próximas etapas: WhatsApp + Catálogo)
+# FUNÇÕES — INTEGRAÇÃO COM A EVOLUTION API (CONEXÃO WHATSAPP)
+# =============================================================================
+def gerar_instance_name(cliente_id: str) -> str:
+    """Gera o nome único e estável da instância a partir do cliente_id."""
+    return f"cliente_{cliente_id.replace('-', '')[:8]}"
+
+
+def buscar_configuracao_whatsapp(cliente_id: str):
+    """Busca a linha de configuração do WhatsApp deste corretor, se existir."""
+    try:
+        res = supabase.table("configuracoes_whatsapp") \
+            .select("*") \
+            .eq("cliente_id", cliente_id) \
+            .execute()
+        return res.data[0] if res.data else None
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao buscar configuração do WhatsApp: {e}", flush=True)
+        return None
+
+
+def criar_instancia_evolution(instance_name: str):
+    """Cria a instância na Evolution API e retorna o QR Code em base64."""
+    try:
+        url = f"{WHATSAPP_API_URL}/instance/create"
+        headers = {"Content-Type": "application/json", "apikey": WHATSAPP_API_TOKEN}
+        payload = {
+            "instanceName": instance_name,
+            "integration": "WHATSAPP-BAILEYS",
+            "qrcode": True,
+        }
+        resposta = requests.post(url, json=payload, headers=headers, timeout=20)
+
+        if resposta.status_code in [200, 201]:
+            dados = resposta.json()
+            qrcode_base64 = dados.get("qrcode", {}).get("base64")
+            return True, qrcode_base64, None
+        else:
+            return False, None, f"Status {resposta.status_code}: {resposta.text[:200]}"
+
+    except Exception as e:
+        return False, None, str(e)
+
+
+def obter_qrcode_evolution(instance_name: str):
+    """Solicita um novo QR Code para uma instância já existente."""
+    try:
+        url = f"{WHATSAPP_API_URL}/instance/connect/{instance_name}"
+        headers = {"apikey": WHATSAPP_API_TOKEN}
+        resposta = requests.get(url, headers=headers, timeout=20)
+
+        if resposta.status_code == 200:
+            dados = resposta.json()
+            qrcode_base64 = dados.get("base64") or dados.get("qrcode", {}).get("base64")
+            return True, qrcode_base64, None
+        else:
+            return False, None, f"Status {resposta.status_code}: {resposta.text[:200]}"
+
+    except Exception as e:
+        return False, None, str(e)
+
+
+def verificar_status_evolution(instance_name: str):
+    """Consulta o status atual da conexão ('open', 'close' ou 'connecting')."""
+    try:
+        url = f"{WHATSAPP_API_URL}/instance/connectionState/{instance_name}"
+        headers = {"apikey": WHATSAPP_API_TOKEN}
+        resposta = requests.get(url, headers=headers, timeout=15)
+
+        if resposta.status_code == 200:
+            dados = resposta.json()
+            estado = dados.get("instance", {}).get("state", "close")
+            return estado
+        return "close"
+
+    except Exception as e:
+        print(f"[EVOLUTION] ❌ Erro ao verificar status: {e}", flush=True)
+        return "close"
+
+
+def salvar_configuracao_whatsapp(cliente_id: str, instance_name: str, status_conexao: str,
+                                   numero_handoff: str = None, nome_handoff: str = None):
+    """Cria ou atualiza a linha de configuração do WhatsApp deste corretor."""
+    try:
+        existente = buscar_configuracao_whatsapp(cliente_id)
+        dados = {
+            "cliente_id": cliente_id,
+            "instance_name": instance_name,
+            "status_conexao": status_conexao,
+        }
+        if numero_handoff:
+            dados["numero_corretor_handoff"] = numero_handoff
+        if nome_handoff:
+            dados["nome_corretor_handoff"] = nome_handoff
+
+        if existente:
+            supabase.table("configuracoes_whatsapp").update(dados).eq("cliente_id", cliente_id).execute()
+        else:
+            # api_token e numero_corretor_handoff são obrigatórios na tabela —
+            # api_token é só um identificador interno (não é a chave global
+            # da Evolution API, essa fica só na variável de ambiente).
+            dados["api_token"] = secrets.token_hex(16)
+            dados["status_financeiro"] = "Ativo"
+            supabase.table("configuracoes_whatsapp").insert(dados).execute()
+        return True
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao salvar configuração do WhatsApp: {e}", flush=True)
+        return False
+
+
+# =============================================================================
+# TELA — CONECTAR WHATSAPP
+# =============================================================================
+def render_conectar_whatsapp(cliente: dict):
+    cliente_id = cliente["id"]
+    instance_name = gerar_instance_name(cliente_id)
+
+    config_atual = buscar_configuracao_whatsapp(cliente_id)
+    status_salvo = config_atual.get("status_conexao") if config_atual else None
+
+    str_app.markdown("""
+        <p class="page-eyebrow">Painel do Corretor</p>
+        <h1 class="page-title">Conectar WhatsApp</h1>
+        <p class="page-subtitle">Conecte o número que vai atender seus leads através da Sofia.</p>
+        <hr>
+    """, unsafe_allow_html=True)
+
+    if status_salvo == "CONECTADO":
+        str_app.success("✅ Seu WhatsApp está conectado e a Sofia já está ativa para qualificar leads.")
+        if str_app.button("🔄 Verificar conexão novamente"):
+            estado = verificar_status_evolution(instance_name)
+            if estado != "open":
+                salvar_configuracao_whatsapp(cliente_id, instance_name, "DESCONECTADO")
+                str_app.warning("Conexão perdida. Recarregando a página para gerar um novo QR Code...")
+                time.sleep(1.2)
+                str_app.rerun()
+            else:
+                str_app.success("Tudo certo, conexão confirmada!")
+
+    elif config_atual is None:
+        # Primeiro acesso: precisamos do número de handoff antes de criar a instância.
+        str_app.markdown("##### 📞 Antes de conectar, precisamos do seu número de WhatsApp pessoal")
+        str_app.caption("É para esse número que a Sofia vai te avisar quando um lead estiver qualificado.")
+
+        with str_app.form(key="form_handoff"):
+            nome_handoff_input = str_app.text_input("Seu nome (como aparece para a Sofia)", value=cliente.get("nome_corretor", ""))
+            numero_handoff_input = str_app.text_input("Seu WhatsApp com DDI e DDD", placeholder="Ex: 5584999998888")
+            confirmou = str_app.form_submit_button("Continuar para o QR Code", type="primary")
+
+            if confirmou:
+                numero_limpo = "".join(filter(str.isdigit, numero_handoff_input))
+                if len(numero_limpo) < 12:
+                    str_app.error("Informe o número completo com DDI (55) + DDD + número. Ex: 5584999998888")
+                else:
+                    with str_app.spinner("Preparando sua conexão..."):
+                        sucesso, qrcode, erro = criar_instancia_evolution(instance_name)
+                        if sucesso and qrcode:
+                            salvar_configuracao_whatsapp(
+                                cliente_id, instance_name, "AGUARDANDO_QR",
+                                numero_handoff=numero_limpo, nome_handoff=nome_handoff_input
+                            )
+                            str_app.session_state["qrcode_atual"] = qrcode
+                            str_app.rerun()
+                        else:
+                            str_app.error(f"Não foi possível gerar o QR Code: {erro}")
+
+    else:
+        if "qrcode_atual" not in str_app.session_state:
+            str_app.session_state["qrcode_atual"] = None
+
+        if str_app.session_state["qrcode_atual"] is None and status_salvo != "CONECTADO":
+            with str_app.spinner("Preparando sua conexão..."):
+                sucesso, qrcode, erro = obter_qrcode_evolution(instance_name)
+
+                if sucesso and qrcode:
+                    str_app.session_state["qrcode_atual"] = qrcode
+                elif not sucesso:
+                    str_app.error(f"Não foi possível gerar o QR Code: {erro}")
+
+        if str_app.session_state["qrcode_atual"]:
+            qr_data = str_app.session_state["qrcode_atual"]
+            if not qr_data.startswith("data:image"):
+                qr_data = f"data:image/png;base64,{qr_data}"
+
+            col_qr, col_info = str_app.columns([1, 1.3])
+            with col_qr:
+                str_app.image(qr_data, width=260)
+
+            with col_info:
+                str_app.markdown("##### 📱 Como conectar:")
+                str_app.markdown("""
+                1. Abra o WhatsApp no celular que vai atender os leads
+                2. Vá em **Configurações → Dispositivos conectados**
+                3. Toque em **Conectar um dispositivo**
+                4. Aponte a câmera para o QR Code ao lado
+                """)
+
+                if str_app.button("✅ Já escaneei — Verificar conexão", type="primary"):
+                    with str_app.spinner("Verificando..."):
+                        estado = verificar_status_evolution(instance_name)
+                    if estado == "open":
+                        salvar_configuracao_whatsapp(cliente_id, instance_name, "CONECTADO")
+                        str_app.session_state["qrcode_atual"] = None
+                        str_app.success("🎉 Conectado com sucesso!")
+                        time.sleep(1.2)
+                        str_app.rerun()
+                    else:
+                        str_app.warning("Ainda não detectamos a conexão. Tente escanear novamente ou aguarde alguns segundos.")
+
+                if str_app.button("🔄 Gerar novo QR Code"):
+                    str_app.session_state["qrcode_atual"] = None
+                    str_app.rerun()
+
+    str_app.markdown("<hr>", unsafe_allow_html=True)
+    str_app.markdown(
+        f"<p style='color:#52525b; font-size:0.82rem;'>Seu código de cliente (informe ao suporte se precisar de ajuda): "
+        f"<code style='background:#1f1f24; padding:2px 8px; border-radius:5px; color:#a78bfa;'>{instance_name}</code></p>",
+        unsafe_allow_html=True
+    )
+
+
+# =============================================================================
+# DASHBOARD PRINCIPAL
 # =============================================================================
 def render_dashboard():
     cliente = str_app.session_state["cliente_atual"]
@@ -364,17 +595,34 @@ def render_dashboard():
         <hr style="margin: 0 0 0.8rem 0 !important;">
     """, unsafe_allow_html=True)
 
+    secao = str_app.sidebar.radio(
+        "Navegação",
+        ["🔌 Conectar WhatsApp", "🏠 Catálogo de Imóveis", "👥 Meus Leads"],
+        label_visibility="collapsed"
+    )
+
+    str_app.sidebar.markdown("<div style='margin-top:1rem;'></div>", unsafe_allow_html=True)
     if str_app.sidebar.button("⏻  Sair", use_container_width=True):
         fazer_logout()
 
-    str_app.markdown("""
-        <p class="page-eyebrow">Painel do Corretor</p>
-        <h1 class="page-title">Bem-vindo de volta 👋</h1>
-        <p class="page-subtitle">Em breve: conexão do WhatsApp e gerenciamento do catálogo de imóveis aqui.</p>
-        <hr>
-    """, unsafe_allow_html=True)
-
-    str_app.info("Próximas etapas: tela de conexão do WhatsApp (QR Code) e catálogo de imóveis.")
+    if secao == "🔌 Conectar WhatsApp":
+        render_conectar_whatsapp(cliente)
+    elif secao == "🏠 Catálogo de Imóveis":
+        str_app.markdown("""
+            <p class="page-eyebrow">Painel do Corretor</p>
+            <h1 class="page-title">Catálogo de Imóveis</h1>
+            <p class="page-subtitle">Em construção — próxima etapa do projeto.</p>
+            <hr>
+        """, unsafe_allow_html=True)
+        str_app.info("Em breve: cadastro completo de imóveis com fotos.")
+    else:
+        str_app.markdown("""
+            <p class="page-eyebrow">Painel do Corretor</p>
+            <h1 class="page-title">Meus Leads</h1>
+            <p class="page-subtitle">Em construção — próxima etapa do projeto.</p>
+            <hr>
+        """, unsafe_allow_html=True)
+        str_app.info("Em breve: lista dos leads qualificados pela Sofia.")
 
 
 # =============================================================================
