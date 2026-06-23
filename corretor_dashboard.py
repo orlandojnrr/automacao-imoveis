@@ -995,6 +995,89 @@ def render_catalogo_imoveis(cliente: dict):
 
 
 # =============================================================================
+# FUNÇÕES — MEUS LEADS
+# =============================================================================
+def listar_leads(cliente_id: str):
+    """Retorna todos os leads deste corretor, mais recentes primeiro."""
+    try:
+        res = supabase.table("leads") \
+            .select("*") \
+            .eq("cliente_id", cliente_id) \
+            .order("id", desc=True) \
+            .execute()
+        return res.data or []
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao listar leads: {e}", flush=True)
+        return []
+
+
+def render_meus_leads(cliente: dict):
+    cliente_id = cliente["id"]
+
+    str_app.markdown("""
+        <p class="page-eyebrow">Painel do Corretor</p>
+        <h1 class="page-title">Meus Leads</h1>
+        <p class="page-subtitle">Leads qualificados pela Sofia através do seu WhatsApp.</p>
+        <hr>
+    """, unsafe_allow_html=True)
+
+    leads = listar_leads(cliente_id)
+
+    if not leads:
+        str_app.info("Nenhum lead recebido ainda. Quando alguém conversar com a Sofia pelo seu WhatsApp, aparecerá aqui.")
+        return
+
+    total = len(leads)
+    qualificados = len([l for l in leads if l.get("status_qualificacao") == "Qualificado"])
+    pendentes = total - qualificados
+
+    c1, c2, c3 = str_app.columns(3)
+    c1.metric("Total de leads", total)
+    c2.metric("Qualificados", qualificados)
+    c3.metric("Em andamento", pendentes)
+
+    str_app.markdown("<br>", unsafe_allow_html=True)
+
+    termo_busca_lead = str_app.text_input(
+        "Buscar lead", placeholder="🔍 Buscar por nome, telefone ou bairro...",
+        label_visibility="collapsed"
+    )
+
+    if termo_busca_lead:
+        termo_l = termo_busca_lead.lower()
+        leads = [
+            l for l in leads
+            if termo_l in (l.get("nome_lead") or "").lower()
+            or termo_l in (l.get("telefone_lead") or "").lower()
+            or termo_l in (l.get("bairro_preferido") or "").lower()
+        ]
+
+    if not leads:
+        str_app.warning("Nenhum lead encontrado com esse termo.")
+        return
+
+    linhas_tabela = []
+    for lead in leads:
+        restricao = lead.get("restricao_cpf")
+        restricao_txt = "Sim" if restricao is True else ("Não" if restricao is False else "–")
+
+        linhas_tabela.append({
+            "Nome": lead.get("nome_lead") or "Não informado",
+            "Telefone": lead.get("telefone_lead") or "–",
+            "Status": lead.get("status_qualificacao") or "Pendente",
+            "Intenção": lead.get("intencao") or "–",
+            "Bairro": lead.get("bairro_preferido") or "–",
+            "Quartos": lead.get("quartos") or "–",
+            "Orçamento": lead.get("orcamento") or "–",
+            "Renda": lead.get("renda_mensal") or "–",
+            "Restrição CPF": restricao_txt,
+            "Notificado": "✅" if lead.get("notificado") else "—",
+        })
+
+    str_app.dataframe(linhas_tabela, use_container_width=True, hide_index=True)
+
+
+# =============================================================================
 # DASHBOARD PRINCIPAL
 # =============================================================================
 def render_dashboard():
