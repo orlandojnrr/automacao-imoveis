@@ -503,6 +503,7 @@ def render_conectar_whatsapp(cliente: dict):
         with str_app.form(key="form_handoff"):
             nome_handoff_input = str_app.text_input("Seu nome (como aparece para a Sofia)", value=cliente.get("nome_corretor", ""))
             numero_handoff_input = str_app.text_input("Seu WhatsApp com DDI e DDD", placeholder="Ex: 5584999998888")
+            str_app.caption("Atenção: este número não será utilizado para conectar o QR Code. Ele serve exclusivamente para que a Sofia envie a você o aviso de lead qualificado.")
             confirmou = str_app.form_submit_button("Continuar para o QR Code", type="primary")
 
             if confirmou:
@@ -578,6 +579,205 @@ def render_conectar_whatsapp(cliente: dict):
 
 
 # =============================================================================
+# FUNÇÕES — CATÁLOGO DE IMÓVEIS
+# =============================================================================
+TIPOS_IMOVEL = ["Casa", "Apartamento", "Terreno", "Sala Comercial"]
+STATUS_IMOVEL = ["Disponível", "Reservado", "Vendido"]
+
+
+def listar_imoveis(cliente_id: str):
+    """Retorna todos os imóveis cadastrados por este corretor, mais recentes primeiro."""
+    try:
+        res = supabase.table("imoveis") \
+            .select("*") \
+            .eq("cliente_id", cliente_id) \
+            .order("criado_em", desc=True) \
+            .execute()
+        return res.data or []
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao listar imóveis: {e}", flush=True)
+        return []
+
+
+def fazer_upload_fotos(cliente_id: str, arquivos: list):
+    """Sobe cada arquivo de imagem para o bucket fotos-imoveis e retorna as URLs públicas."""
+    urls = []
+    for arquivo in arquivos:
+        try:
+            extensao = arquivo.name.split(".")[-1].lower()
+            nome_unico = f"{cliente_id}/{secrets.token_hex(8)}.{extensao}"
+            conteudo = arquivo.getvalue()
+
+            supabase.storage.from_("fotos-imoveis").upload(
+                nome_unico, conteudo,
+                file_options={"content-type": arquivo.type}
+            )
+            url_publica = supabase.storage.from_("fotos-imoveis").get_public_url(nome_unico)
+            urls.append(url_publica)
+        except Exception as e:
+            print(f"[STORAGE] ❌ Erro ao subir foto {arquivo.name}: {e}", flush=True)
+    return urls
+
+
+def criar_imovel(cliente_id: str, dados: dict, fotos_arquivos: list):
+    """Cria um novo imóvel, fazendo upload das fotos antes de salvar a linha."""
+    try:
+        urls_fotos = fazer_upload_fotos(cliente_id, fotos_arquivos) if fotos_arquivos else []
+        dados["cliente_id"] = cliente_id
+        dados["fotos_urls"] = urls_fotos
+        supabase.table("imoveis").insert(dados).execute()
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+def excluir_imovel(imovel_id: str):
+    try:
+        supabase.table("imoveis").delete().eq("id", imovel_id).execute()
+        return True
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao excluir imóvel: {e}", flush=True)
+        return False
+
+
+def atualizar_status_imovel(imovel_id: str, novo_status: str):
+    try:
+        supabase.table("imoveis").update({"status": novo_status}).eq("id", imovel_id).execute()
+        return True
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao atualizar status do imóvel: {e}", flush=True)
+        return False
+
+
+@str_app.dialog("➕ Adicionar novo imóvel", width="large")
+def modal_novo_imovel(cliente_id: str):
+    col1, col2 = str_app.columns(2)
+    with col1:
+        tipo = str_app.selectbox("Tipo de imóvel", TIPOS_IMOVEL)
+        bairro = str_app.text_input("Bairro", placeholder="Ex: Jardim Planalto")
+        preco = str_app.number_input("Preço (R$)", min_value=0.0, step=1000.0, format="%.2f")
+        status = str_app.selectbox("Status", STATUS_IMOVEL)
+    with col2:
+        quartos = str_app.number_input("Quartos", min_value=0, step=1)
+        vagas = str_app.number_input("Vagas de garagem", min_value=0, step=1)
+        metragem = str_app.number_input("Metragem (m²)", min_value=0.0, step=1.0)
+
+    descricao = str_app.text_area("Descrição do imóvel", placeholder="Detalhes, diferenciais, condições...")
+
+    fotos = str_app.file_uploader(
+        "Fotos do imóvel (até 6)",
+        type=["jpg", "jpeg", "png", "webp"],
+        accept_multiple_files=True
+    )
+    if fotos and len(fotos) > 6:
+        str_app.warning("Você selecionou mais de 6 fotos — apenas as 6 primeiras serão enviadas.")
+        fotos = fotos[:6]
+
+    if fotos:
+        str_app.image([f.getvalue() for f in fotos], width=90)
+
+    col_salvar, col_cancelar = str_app.columns(2)
+    with col_salvar:
+        if str_app.button("💾 Salvar imóvel", type="primary", use_container_width=True):
+            if not bairro or preco <= 0:
+                str_app.error("Preencha ao menos o bairro e o preço.")
+            else:
+                with str_app.spinner("Salvando imóvel e enviando fotos..."):
+                    dados_imovel = {
+                        "tipo_imovel": tipo,
+                        "bairro": bairro,
+                        "quartos": int(quartos) if quartos else None,
+                        "vagas_garagem": int(vagas) if vagas else None,
+                        "metragem": float(metragem) if metragem else None,
+                        "preco": float(preco),
+                        "status": status,
+                        "descricao": descricao,
+                    }
+                    sucesso, erro = criar_imovel(cliente_id, dados_imovel, fotos or [])
+
+                if sucesso:
+                    str_app.success("Imóvel cadastrado com sucesso!")
+                    time.sleep(1)
+                    str_app.rerun()
+                else:
+                    str_app.error(f"Erro ao salvar: {erro}")
+    with col_cancelar:
+        if str_app.button("Cancelar", use_container_width=True):
+            str_app.rerun()
+
+
+def formatar_preco(valor) -> str:
+    try:
+        return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return "R$ 0,00"
+
+
+def render_catalogo_imoveis(cliente: dict):
+    cliente_id = cliente["id"]
+
+    str_app.markdown("""
+        <p class="page-eyebrow">Painel do Corretor</p>
+        <h1 class="page-title">Catálogo de Imóveis</h1>
+        <p class="page-subtitle">Cadastre os imóveis que a Sofia vai sugerir aos seus leads.</p>
+        <hr>
+    """, unsafe_allow_html=True)
+
+    if str_app.button("➕ Adicionar imóvel", type="primary"):
+        modal_novo_imovel(cliente_id)
+
+    imoveis = listar_imoveis(cliente_id)
+
+    if not imoveis:
+        str_app.info("Nenhum imóvel cadastrado ainda. Clique em \"➕ Adicionar imóvel\" para começar.")
+        return
+
+    str_app.markdown("<br>", unsafe_allow_html=True)
+    colunas = str_app.columns(3)
+
+    for i, imovel in enumerate(imoveis):
+        with colunas[i % 3]:
+            with str_app.container(border=True):
+                fotos_urls = imovel.get("fotos_urls") or []
+                if fotos_urls:
+                    str_app.image(fotos_urls[0], use_container_width=True)
+                else:
+                    str_app.markdown(
+                        "<div style='background:#131316; border-radius:8px; height:140px; "
+                        "display:flex; align-items:center; justify-content:center; color:#52525b;'>Sem foto</div>",
+                        unsafe_allow_html=True
+                    )
+
+                cor_status = {"Disponível": "#4ade80", "Reservado": "#fb923c", "Vendido": "#f87171"}.get(imovel.get("status"), "#71717a")
+                str_app.markdown(
+                    f"<p style='margin:0.6rem 0 0 0; font-weight:700; color:#fafafa;'>{imovel.get('tipo_imovel', '')} · {imovel.get('bairro', '')}</p>"
+                    f"<p style='margin:0.15rem 0 0 0; font-size:1.05rem; font-weight:700; color:#c4b5fd;'>{formatar_preco(imovel.get('preco'))}</p>"
+                    f"<p style='margin:0.3rem 0 0 0; font-size:0.82rem; color:#a1a1aa;'>"
+                    f"🛏️ {imovel.get('quartos') or '–'} · 🚗 {imovel.get('vagas_garagem') or '–'} · 📐 {imovel.get('metragem') or '–'}m²</p>"
+                    f"<p style='margin:0.4rem 0 0 0; font-size:0.78rem; font-weight:700; color:{cor_status};'>● {imovel.get('status', '')}</p>",
+                    unsafe_allow_html=True
+                )
+
+                if imovel.get("descricao"):
+                    with str_app.expander("Ver descrição"):
+                        str_app.write(imovel["descricao"])
+
+                novo_status = str_app.selectbox(
+                    "Status", STATUS_IMOVEL,
+                    index=STATUS_IMOVEL.index(imovel.get("status", "Disponível")) if imovel.get("status") in STATUS_IMOVEL else 0,
+                    key=f"status_{imovel['id']}",
+                    label_visibility="collapsed"
+                )
+                if novo_status != imovel.get("status"):
+                    atualizar_status_imovel(imovel["id"], novo_status)
+                    str_app.rerun()
+
+                if str_app.button("🗑️ Excluir", key=f"del_{imovel['id']}", use_container_width=True):
+                    excluir_imovel(imovel["id"])
+                    str_app.rerun()
+
+
+# =============================================================================
 # DASHBOARD PRINCIPAL
 # =============================================================================
 def render_dashboard():
@@ -608,13 +808,7 @@ def render_dashboard():
     if secao == "🔌 Conectar WhatsApp":
         render_conectar_whatsapp(cliente)
     elif secao == "🏠 Catálogo de Imóveis":
-        str_app.markdown("""
-            <p class="page-eyebrow">Painel do Corretor</p>
-            <h1 class="page-title">Catálogo de Imóveis</h1>
-            <p class="page-subtitle">Em construção — próxima etapa do projeto.</p>
-            <hr>
-        """, unsafe_allow_html=True)
-        str_app.info("Em breve: cadastro completo de imóveis com fotos.")
+        render_catalogo_imoveis(cliente)
     else:
         str_app.markdown("""
             <p class="page-eyebrow">Painel do Corretor</p>
