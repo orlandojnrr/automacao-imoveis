@@ -10,8 +10,13 @@ from supabase import create_client, Client
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "12345")
 
-# Configuração da página
-str_app.set_page_config(page_title="Sofia IA - Core Admin", layout="wide", page_icon="⚡")
+# Configuração da página — em try/except porque, quando este arquivo é
+# executado dentro do roteador dashboards.py, o set_page_config já foi
+# chamado uma vez antes (e o Streamlit só permite a primeira chamada).
+try:
+    str_app.set_page_config(page_title="Sofia IA - Core Admin", layout="wide", page_icon="⚡")
+except str_app.errors.StreamlitAPIException:
+    pass
 
 # --- UI CSS / ESTILIZAÇÃO ---
 str_app.markdown("""

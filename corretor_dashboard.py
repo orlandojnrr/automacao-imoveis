@@ -8,12 +8,18 @@ load_dotenv()
 # =============================================================================
 # CONFIGURAÇÃO DA PÁGINA
 # =============================================================================
-str_app.set_page_config(
-    page_title="Sofia IA — Painel do Corretor",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+# Em try/except porque, ao rodar dentro do roteador dashboards.py, o
+# set_page_config já foi chamado uma vez antes (o Streamlit só permite a
+# primeira chamada de cada execução).
+try:
+    str_app.set_page_config(
+        page_title="Sofia IA — Painel do Corretor",
+        page_icon="⚡",
+        layout="wide",
+        initial_sidebar_state="collapsed"
+    )
+except str_app.errors.StreamlitAPIException:
+    pass
 
 # =============================================================================
 # CONEXÃO COM SUPABASE
