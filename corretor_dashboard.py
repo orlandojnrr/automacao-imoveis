@@ -224,7 +224,7 @@ def fazer_login(email: str, senha: str):
         return False, f"Erro ao fazer login: {mensagem}"
 
 
-def fazer_cadastro(nome: str, email: str, senha: str):
+def fazer_cadastro(nome: str, nome_empresa: str, email: str, senha: str):
     """Cria o usuário no Supabase Auth e a linha correspondente em clientes_saas."""
     try:
         resultado = supabase.auth.sign_up({"email": email, "password": senha})
@@ -235,6 +235,7 @@ def fazer_cadastro(nome: str, email: str, senha: str):
         novo_cliente = {
             "auth_user_id": resultado.user.id,
             "nome_corretor": nome,
+            "nome_empresa": nome_empresa,
             "email": email,
         }
         supabase.table("clientes_saas").insert(novo_cliente).execute()
@@ -315,6 +316,7 @@ def render_cadastro():
         with str_app.container(key="auth_card_container"):
             with str_app.form(key="cadastro_form", border=False):
                 nome_input = str_app.text_input("Nome completo", placeholder="Seu nome")
+                nome_empresa_input = str_app.text_input("Nome da imobiliária/empresa", placeholder="Ex: Imobiliária Silva")
                 email_input = str_app.text_input("E-mail", placeholder="seu@email.com")
                 senha_input = str_app.text_input("Senha", type="password", placeholder="mínimo 6 caracteres")
                 senha_confirma = str_app.text_input("Confirme a senha", type="password", placeholder="repita a senha")
@@ -322,7 +324,7 @@ def render_cadastro():
                 enviou = str_app.form_submit_button("Criar conta", use_container_width=True)
 
                 if enviou:
-                    if not nome_input or not email_input or not senha_input:
+                    if not nome_input or not nome_empresa_input or not email_input or not senha_input:
                         str_app.error("Preencha todos os campos.")
                     elif senha_input != senha_confirma:
                         str_app.error("As senhas não coincidem.")
@@ -330,7 +332,7 @@ def render_cadastro():
                         str_app.error("A senha precisa ter no mínimo 6 caracteres.")
                     else:
                         with str_app.spinner("Criando sua conta..."):
-                            sucesso, erro = fazer_cadastro(nome_input, email_input, senha_input)
+                            sucesso, erro = fazer_cadastro(nome_input, nome_empresa_input, email_input, senha_input)
                         if sucesso:
                             str_app.success("Conta criada com sucesso! Faça login para continuar.")
                             str_app.session_state["tela_auth"] = "login"
