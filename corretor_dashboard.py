@@ -1504,32 +1504,174 @@ def render_configuracoes(cliente: dict):
 
 
 # =============================================================================
+# FUNÇÕES — PERFIL DO CORRETOR
+# =============================================================================
+def atualizar_perfil_corretor(cliente_id: str, dados: dict) -> bool:
+    try:
+        supabase.table("clientes_saas").update(dados).eq("id", cliente_id).execute()
+        return True
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao atualizar perfil do corretor: {e}", flush=True)
+        return False
+
+
+def fazer_upload_foto_perfil(auth_user_id: str, arquivo) -> str | None:
+    """Sobe a foto de perfil para o bucket fotos-imoveis (mesma policy já cobre o auth_user_id)."""
+    sessao = str_app.session_state.get("auth_session")
+    if sessao:
+        try:
+            supabase.auth.set_session(sessao.access_token, sessao.refresh_token)
+        except Exception as e:
+            print(f"[AUTH] ⚠️ Não foi possível restaurar a sessão: {e}", flush=True)
+
+    try:
+        extensao = arquivo.name.split(".")[-1].lower()
+        nome_unico = f"{auth_user_id}/perfil_{secrets.token_hex(6)}.{extensao}"
+        supabase.storage.from_("fotos-imoveis").upload(
+            nome_unico, arquivo.getvalue(),
+            file_options={"content-type": arquivo.type, "upsert": "true"}
+        )
+        return supabase.storage.from_("fotos-imoveis").get_public_url(nome_unico)
+    except Exception as e:
+        print(f"[STORAGE] ❌ Erro ao subir foto de perfil: {e}", flush=True)
+        return None
+
+
+def alterar_senha_corretor(nova_senha: str):
+    try:
+        supabase.auth.update_user({"password": nova_senha})
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+@str_app.dialog("👤 Meu perfil", width="large")
+def modal_perfil(cliente: dict):
+    auth_user_id = cliente["auth_user_id"]
+    foto_atual = cliente.get("foto_url")
+
+    col_foto, col_dados = str_app.columns([1, 2])
+    with col_foto:
+        if foto_atual:
+            str_app.image(foto_atual, width=140)
+        else:
+            str_app.markdown(
+                "<div style='width:140px; height:140px; border-radius:50%; background:#18181c; "
+                "border:1px solid #2a2a31; display:flex; align-items:center; justify-content:center; "
+                "font-size:2.4rem; color:#52525b;'>👤</div>",
+                unsafe_allow_html=True
+            )
+        nova_foto = str_app.file_uploader("Trocar foto", type=["jpg", "jpeg", "png", "webp"], key="upload_foto_perfil")
+
+    with col_dados:
+        nome = str_app.text_input("Nome completo", value=cliente.get("nome_corretor") or "")
+        telefone = str_app.text_input("Telefone pessoal", value=cliente.get("telefone_pessoal") or "", placeholder="Ex: 5584999998888")
+        creci = str_app.text_input("CRECI", value=cliente.get("creci") or "", placeholder="Ex: 12345-F/RN")
+        bio = str_app.text_area("Bio curta", value=cliente.get("bio") or "", placeholder="Uma breve descrição sobre você...", height=90)
+
+    col_salvar, col_cancelar = str_app.columns(2)
+    with col_salvar:
+        if str_app.button("💾 Salvar perfil", type="primary", use_container_width=True):
+            with str_app.spinner("Salvando..."):
+                dados_atualizar = {
+                    "nome_corretor": nome,
+                    "telefone_pessoal": telefone,
+                    "creci": creci,
+                    "bio": bio,
+                }
+                if nova_foto:
+                    url_nova_foto = fazer_upload_foto_perfil(auth_user_id, nova_foto)
+                    if url_nova_foto:
+                        dados_atualizar["foto_url"] = url_nova_foto
+
+                sucesso = atualizar_perfil_corretor(cliente["id"], dados_atualizar)
+
+            if sucesso:
+                str_app.session_state["cliente_atual"].update(dados_atualizar)
+                str_app.success("Perfil atualizado!")
+                time.sleep(1)
+                str_app.rerun()
+            else:
+                str_app.error("Não foi possível salvar agora. Tente novamente.")
+    with col_cancelar:
+        if str_app.button("Cancelar", use_container_width=True, key="cancelar_perfil"):
+            str_app.rerun()
+
+
+@str_app.dialog("⚙️ Configurações da conta")
+def modal_configuracoes_conta(cliente: dict):
+    str_app.markdown("##### 🔒 Alterar senha")
+    with str_app.form(key="form_alterar_senha"):
+        nova_senha = str_app.text_input("Nova senha", type="password", placeholder="mínimo 6 caracteres")
+        confirmar_senha = str_app.text_input("Confirme a nova senha", type="password")
+        salvou_senha = str_app.form_submit_button("Atualizar senha", type="primary")
+
+        if salvou_senha:
+            if not nova_senha or len(nova_senha) < 6:
+                str_app.error("A senha precisa ter no mínimo 6 caracteres.")
+            elif nova_senha != confirmar_senha:
+                str_app.error("As senhas não coincidem.")
+            else:
+                with str_app.spinner("Atualizando..."):
+                    sucesso, erro = alterar_senha_corretor(nova_senha)
+                if sucesso:
+                    str_app.success("Senha atualizada com sucesso!")
+                else:
+                    str_app.error(f"Não foi possível atualizar: {erro}")
+
+    str_app.markdown("<hr>", unsafe_allow_html=True)
+    str_app.markdown("##### 💳 Pagamento e assinatura")
+    str_app.info("Em breve: gerenciamento do plano e forma de pagamento por aqui.")
+
+    if str_app.button("Fechar", use_container_width=True):
+        str_app.rerun()
+
+
+def render_menu_perfil(cliente: dict):
+    foto_url = cliente.get("foto_url")
+
+    with str_app.popover("👤  " + (cliente.get("nome_corretor") or "Corretor"), use_container_width=True):
+        if str_app.button("👤 Perfil", use_container_width=True, key="menu_abrir_perfil"):
+            modal_perfil(cliente)
+        if str_app.button("⚙️ Configurações da conta", use_container_width=True, key="menu_abrir_config_conta"):
+            modal_configuracoes_conta(cliente)
+        if str_app.button("⏻ Sair", use_container_width=True, key="menu_sair"):
+            fazer_logout()
+
+
+# =============================================================================
 # DASHBOARD PRINCIPAL
 # =============================================================================
 def render_dashboard():
     cliente = str_app.session_state["cliente_atual"]
+    foto_url = cliente.get("foto_url")
 
-    str_app.sidebar.markdown(f"""
-        <div style="display:flex; align-items:center; gap:10px; padding: 0.5rem 0 1.1rem 0;">
-            <div style="width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg,#7d33ff,#5b21b6);
-                        display:flex; align-items:center; justify-content:center; font-size:18px;">⚡</div>
-            <div>
-                <p style="margin:0; color:#fafafa; font-weight:700; font-size:1.0rem; line-height:1.1;">{cliente.get('nome_corretor', 'Corretor')}</p>
-                <p style="margin:0; color:#71717a; font-size:0.74rem;">Painel do Corretor</p>
-            </div>
-        </div>
-        <hr style="margin: 0 0 0.8rem 0 !important;">
-    """, unsafe_allow_html=True)
+    with str_app.sidebar:
+        col_foto_side, col_nome_side = str_app.columns([1, 3])
+        with col_foto_side:
+            if foto_url:
+                str_app.image(foto_url, width=40)
+            else:
+                str_app.markdown(
+                    "<div style='width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,#7d33ff,#5b21b6); "
+                    "display:flex; align-items:center; justify-content:center; font-size:16px;'>⚡</div>",
+                    unsafe_allow_html=True
+                )
+        with col_nome_side:
+            str_app.markdown(
+                f"<p style='margin:0; color:#fafafa; font-weight:700; font-size:0.95rem; line-height:1.2;'>{cliente.get('nome_corretor', 'Corretor')}</p>"
+                f"<p style='margin:0; color:#71717a; font-size:0.72rem;'>Painel do Corretor</p>",
+                unsafe_allow_html=True
+            )
+
+        render_menu_perfil(cliente)
+        str_app.markdown("<hr style='margin: 0.6rem 0 0.8rem 0 !important;'>", unsafe_allow_html=True)
 
     secao = str_app.sidebar.radio(
         "Navegação",
         ["🔌 Conectar WhatsApp", "🏠 Catálogo de Imóveis", "👥 Meus Leads", "⚙️ Configurações da Sofia"],
         label_visibility="collapsed"
     )
-
-    str_app.sidebar.markdown("<div style='margin-top:1rem;'></div>", unsafe_allow_html=True)
-    if str_app.sidebar.button("⏻  Sair", use_container_width=True):
-        fazer_logout()
 
     if secao == "🔌 Conectar WhatsApp":
         render_conectar_whatsapp(cliente)
