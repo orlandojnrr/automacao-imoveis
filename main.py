@@ -70,7 +70,8 @@ def verificar_tenant(instance_name: str) -> Optional[dict]:
                 "cliente_id",
                 "status_financeiro",
                 "numero_corretor_handoff",
-                "nome_corretor_handoff"
+                "nome_corretor_handoff",
+                "prompt_personalizado"
             )
             .eq("instance_name", instance_name)
             .execute()
@@ -350,6 +351,16 @@ def responder_com_gemini(tenant: dict, lead: dict, mensagem_nova: str) -> str:
 
     # 2. Instrução de Sistema (Onde a mágica acontece)
     # O Gemini precisa entender que ele é um preenchedor de formulário
+    prompt_extra = (tenant.get("prompt_personalizado") or "").strip()
+    bloco_personalizacao = ""
+    if prompt_extra:
+        bloco_personalizacao = f"""
+
+    PERSONALIZAÇÃO DEFINIDA PELO CORRETOR (tom, personalidade e frases — siga isso
+    sem nunca contrariar as REGRAS DE OURO abaixo, que têm prioridade absoluta):
+    {prompt_extra}
+    """
+
     system_instruction = f"""
     Você é a Sofia, assistente da imobiliária. Seu objetivo é qualificar leads.
     
@@ -360,6 +371,7 @@ def responder_com_gemini(tenant: dict, lead: dict, mensagem_nova: str) -> str:
     2. NUNCA pergunte sobre um campo que já possui um valor preenchido no estado acima.
     3. Se todos os campos estiverem preenchidos, parabéns! Informe ao cliente que o perfil dele foi criado e que um corretor entrará em contato.
     4. Seja breve, simpática e natural. Não pareça um robô fazendo um interrogatório.
+    {bloco_personalizacao}
     """
 
     # 3. Chamada à API com a nova mensagem

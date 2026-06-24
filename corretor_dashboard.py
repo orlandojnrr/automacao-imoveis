@@ -1288,6 +1288,75 @@ def render_meus_leads(cliente: dict):
 
 
 # =============================================================================
+# FUNÇÕES — CONFIGURAÇÕES (PERSONALIZAÇÃO DA SOFIA)
+# =============================================================================
+def buscar_prompt_personalizado(cliente_id: str) -> str:
+    config = buscar_configuracao_whatsapp(cliente_id)
+    return (config.get("prompt_personalizado") or "") if config else ""
+
+
+def salvar_prompt_personalizado(cliente_id: str, texto: str) -> bool:
+    try:
+        supabase.table("configuracoes_whatsapp") \
+            .update({"prompt_personalizado": texto}) \
+            .eq("cliente_id", cliente_id) \
+            .execute()
+        return True
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao salvar prompt personalizado: {e}", flush=True)
+        return False
+
+
+def render_configuracoes(cliente: dict):
+    cliente_id = cliente["id"]
+
+    str_app.markdown("""
+        <p class="page-eyebrow">Painel do Corretor</p>
+        <h1 class="page-title">Configurações</h1>
+        <p class="page-subtitle">Personalize o tom e a forma como a Sofia se comunica com seus leads.</p>
+        <hr>
+    """, unsafe_allow_html=True)
+
+    config_existe = buscar_configuracao_whatsapp(cliente_id)
+    if not config_existe:
+        str_app.info("Conecte seu WhatsApp primeiro, na aba \"Conectar WhatsApp\", para liberar essa personalização.")
+        return
+
+    prompt_atual = buscar_prompt_personalizado(cliente_id)
+
+    str_app.markdown("##### 💬 Personalidade da Sofia")
+    str_app.caption(
+        "Use este espaço para ajustar o **tom de voz**, **expressões** e **estilo** da Sofia — por "
+        "exemplo, mais formal, mais descontraída, usar o nome da sua imobiliária, evitar certas "
+        "palavras, etc. As perguntas de qualificação de lead (bairro, orçamento, etc.) seguem "
+        "sempre o mesmo padrão e não são afetadas por esta configuração."
+    )
+
+    with str_app.form(key="form_prompt_personalizado"):
+        novo_prompt = str_app.text_area(
+            "Instruções de personalização",
+            value=prompt_atual,
+            height=200,
+            placeholder=(
+                "Exemplo:\n"
+                "Fale de forma calorosa e use emojis com moderação. Sempre que possível, "
+                "mencione que a imobiliária Silva Imóveis está há 15 anos no mercado de "
+                "Parnamirim. Evite gírias regionais fortes."
+            ),
+            label_visibility="collapsed"
+        )
+        salvou = str_app.form_submit_button("💾 Salvar personalização", type="primary")
+
+        if salvou:
+            with str_app.spinner("Salvando..."):
+                sucesso = salvar_prompt_personalizado(cliente_id, novo_prompt.strip())
+            if sucesso:
+                str_app.success("Personalização salva! A Sofia já vai usar isso nas próximas conversas.")
+            else:
+                str_app.error("Não foi possível salvar agora. Tente novamente em alguns instantes.")
+
+
+# =============================================================================
 # DASHBOARD PRINCIPAL
 # =============================================================================
 def render_dashboard():
@@ -1307,7 +1376,7 @@ def render_dashboard():
 
     secao = str_app.sidebar.radio(
         "Navegação",
-        ["🔌 Conectar WhatsApp", "🏠 Catálogo de Imóveis", "👥 Meus Leads"],
+        ["🔌 Conectar WhatsApp", "🏠 Catálogo de Imóveis", "👥 Meus Leads", "⚙️ Configurações"],
         label_visibility="collapsed"
     )
 
@@ -1319,8 +1388,10 @@ def render_dashboard():
         render_conectar_whatsapp(cliente)
     elif secao == "🏠 Catálogo de Imóveis":
         render_catalogo_imoveis(cliente)
-    else:
+    elif secao == "👥 Meus Leads":
         render_meus_leads(cliente)
+    else:
+        render_configuracoes(cliente)
 
 
 # =============================================================================
