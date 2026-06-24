@@ -1110,13 +1110,7 @@ def render_dashboard():
     elif secao == "🏠 Catálogo de Imóveis":
         render_catalogo_imoveis(cliente)
     else:
-        str_app.markdown("""
-            <p class="page-eyebrow">Painel do Corretor</p>
-            <h1 class="page-title">Meus Leads</h1>
-            <p class="page-subtitle">Em construção — próxima etapa do projeto.</p>
-            <hr>
-        """, unsafe_allow_html=True)
-        str_app.info("Em breve: lista dos leads qualificados pela Sofia.")
+        render_meus_leads(cliente)
 
 
 # =============================================================================
