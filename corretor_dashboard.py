@@ -382,11 +382,9 @@ def render_login():
                         else:
                             str_app.error(erro)
 
-            col_esqueci, col_cadastro_link = str_app.columns(2)
-            with col_esqueci:
-                if str_app.button("Esqueci minha senha", use_container_width=True, type="secondary", key="ir_recuperar"):
-                    str_app.session_state["tela_auth"] = "recuperar_senha"
-                    str_app.rerun()
+            if str_app.button("Esqueci minha senha", use_container_width=True, type="secondary", key="ir_recuperar"):
+                str_app.session_state["tela_auth"] = "recuperar_senha"
+                str_app.rerun()
 
             str_app.markdown('<p class="auth-switch-text">Ainda não tem uma conta?</p>', unsafe_allow_html=True)
             if str_app.button("Criar conta gratuita", use_container_width=True, type="secondary", key="ir_cadastro"):
@@ -1537,9 +1535,27 @@ def fazer_upload_foto_perfil(auth_user_id: str, arquivo) -> str | None:
         return None
 
 
-def alterar_senha_corretor(nova_senha: str):
+def alterar_senha_corretor(email_atual: str, senha_atual: str, nova_senha: str):
+    """Confirma a senha atual via um login silencioso antes de permitir a troca.
+
+    O Supabase Auth não tem um endpoint dedicado de "verificar senha sem
+    afetar a sessão", então usamos sign_in_with_password como verificação —
+    se a senha atual estiver certa, ele retorna sucesso (e atualiza a sessão
+    para a mesma conta, sem efeito colateral real).
+    """
+    try:
+        verificacao = supabase.auth.sign_in_with_password({"email": email_atual, "password": senha_atual})
+        if not verificacao.user:
+            return False, "Senha atual incorreta."
+    except Exception:
+        return False, "Senha atual incorreta."
+
     try:
         supabase.auth.update_user({"password": nova_senha})
+        # Mantém a sessão em session_state sincronizada após a verificação acima
+        sessao_atualizada = supabase.auth.get_session()
+        if sessao_atualizada:
+            str_app.session_state["auth_session"] = sessao_atualizada
         return True, None
     except Exception as e:
         return False, str(e)
@@ -1602,22 +1618,27 @@ def modal_perfil(cliente: dict):
 def modal_configuracoes_conta(cliente: dict):
     str_app.markdown("##### 🔒 Alterar senha")
     with str_app.form(key="form_alterar_senha"):
+        senha_atual = str_app.text_input("Senha atual", type="password", placeholder="Digite sua senha atual")
         nova_senha = str_app.text_input("Nova senha", type="password", placeholder="mínimo 6 caracteres")
         confirmar_senha = str_app.text_input("Confirme a nova senha", type="password")
         salvou_senha = str_app.form_submit_button("Atualizar senha", type="primary")
 
         if salvou_senha:
-            if not nova_senha or len(nova_senha) < 6:
-                str_app.error("A senha precisa ter no mínimo 6 caracteres.")
+            if not senha_atual:
+                str_app.error("Informe sua senha atual.")
+            elif not nova_senha or len(nova_senha) < 6:
+                str_app.error("A nova senha precisa ter no mínimo 6 caracteres.")
             elif nova_senha != confirmar_senha:
                 str_app.error("As senhas não coincidem.")
+            elif senha_atual == nova_senha:
+                str_app.warning("A nova senha precisa ser diferente da senha atual.")
             else:
-                with str_app.spinner("Atualizando..."):
-                    sucesso, erro = alterar_senha_corretor(nova_senha)
+                with str_app.spinner("Verificando e atualizando..."):
+                    sucesso, erro = alterar_senha_corretor(cliente.get("email"), senha_atual, nova_senha)
                 if sucesso:
                     str_app.success("Senha atualizada com sucesso!")
                 else:
-                    str_app.error(f"Não foi possível atualizar: {erro}")
+                    str_app.error(erro)
 
     str_app.markdown("<hr>", unsafe_allow_html=True)
     str_app.markdown("##### 💳 Pagamento e assinatura")
