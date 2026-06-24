@@ -175,15 +175,51 @@ str_app.markdown("""
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }
 
-        /* Sidebar */
+        /* Sidebar — mesmo visual refinado do painel do corretor */
         [data-testid="stSidebar"] {
             background: linear-gradient(180deg, #0d0d10 0%, #09090b 100%);
             border-right: 1px solid #1f1f24;
         }
 
+        [data-testid="stSidebar"] [data-testid="stRadio"] > label {
+            display: none;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] > div {
+            gap: 0.3rem;
+        }
+
         [data-testid="stSidebar"] [data-testid="stRadio"] label {
-            font-size: 0.92rem;
-            padding: 0.35rem 0;
+            background: transparent;
+            border-radius: 10px;
+            padding: 0.55rem 0.7rem;
+            margin: 0;
+            transition: background 0.15s ease;
+            cursor: pointer;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+            background: #16161a;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] label span {
+            color: #d4d4d8 !important;
+            font-size: 0.92rem !important;
+            font-weight: 500 !important;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
+            background: linear-gradient(135deg, rgba(124,58,237,0.18), rgba(124,58,237,0.05));
+            border-left: 2px solid #7d33ff;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) span {
+            color: #c4b5fd !important;
+            font-weight: 600 !important;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] label > div:first-child {
+            display: none;
         }
 
         [data-testid="stSidebar"] .stButton button {
@@ -192,6 +228,7 @@ str_app.markdown("""
             color: #d4d4d8;
             border-radius: 9px;
             font-weight: 500;
+            transition: border-color 0.15s ease, color 0.15s ease;
         }
 
         [data-testid="stSidebar"] .stButton button:hover {

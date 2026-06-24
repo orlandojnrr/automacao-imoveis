@@ -340,6 +340,15 @@ def fazer_logout():
     str_app.rerun()
 
 
+def solicitar_recuperacao_senha(email: str):
+    """Envia o e-mail de redefinição de senha via Supabase Auth."""
+    try:
+        supabase.auth.reset_password_for_email(email)
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
 # =============================================================================
 # TELA DE LOGIN
 # =============================================================================
@@ -373,9 +382,52 @@ def render_login():
                         else:
                             str_app.error(erro)
 
+            col_esqueci, col_cadastro_link = str_app.columns(2)
+            with col_esqueci:
+                if str_app.button("Esqueci minha senha", use_container_width=True, type="secondary", key="ir_recuperar"):
+                    str_app.session_state["tela_auth"] = "recuperar_senha"
+                    str_app.rerun()
+
             str_app.markdown('<p class="auth-switch-text">Ainda não tem uma conta?</p>', unsafe_allow_html=True)
             if str_app.button("Criar conta gratuita", use_container_width=True, type="secondary", key="ir_cadastro"):
                 str_app.session_state["tela_auth"] = "cadastro"
+                str_app.rerun()
+
+
+# =============================================================================
+# TELA DE RECUPERAÇÃO DE SENHA
+# =============================================================================
+def render_recuperar_senha():
+    c1, c2, c3 = str_app.columns([1, 1.1, 1])
+
+    with c2:
+        str_app.markdown("""
+            <div class="login-wrapper">
+                <div class="login-badge">🔑</div>
+                <p class="login-title">Recuperar senha</p>
+                <p class="login-subtitle">Enviaremos um link de redefinição para o seu e-mail</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+        with str_app.container(key="auth_card_container"):
+            with str_app.form(key="recuperar_form", border=False):
+                email_recuperacao = str_app.text_input("E-mail cadastrado", placeholder="seu@email.com")
+                enviou_recuperacao = str_app.form_submit_button("Enviar link de recuperação", use_container_width=True)
+
+                if enviou_recuperacao:
+                    if not email_recuperacao:
+                        str_app.error("Informe o e-mail cadastrado.")
+                    else:
+                        with str_app.spinner("Enviando..."):
+                            sucesso, erro = solicitar_recuperacao_senha(email_recuperacao)
+                        if sucesso:
+                            str_app.success("Se este e-mail estiver cadastrado, um link de redefinição foi enviado. Verifique sua caixa de entrada (e o spam).")
+                        else:
+                            str_app.error(f"Não foi possível enviar o link agora: {erro}")
+
+            str_app.markdown('<p class="auth-switch-text">Lembrou a senha?</p>', unsafe_allow_html=True)
+            if str_app.button("Voltar para o login", use_container_width=True, type="secondary", key="voltar_login"):
+                str_app.session_state["tela_auth"] = "login"
                 str_app.rerun()
 
 
@@ -1496,5 +1548,7 @@ if str_app.session_state["cliente_atual"] is not None:
     render_dashboard()
 elif str_app.session_state["tela_auth"] == "cadastro":
     render_cadastro()
+elif str_app.session_state["tela_auth"] == "recuperar_senha":
+    render_recuperar_senha()
 else:
     render_login()
