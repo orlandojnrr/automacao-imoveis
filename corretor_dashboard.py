@@ -1221,6 +1221,92 @@ def listar_leads(cliente_id: str):
         return []
 
 
+ESTAGIOS_FUNIL = ["Novo Lead", "Conversando", "Qualificado", "Visita Agendada", "Proposta Enviada", "Fechado", "Perdido"]
+
+CORES_ESTAGIO = {
+    "Novo Lead": "#3b82f6",
+    "Conversando": "#a78bfa",
+    "Qualificado": "#22c55e",
+    "Visita Agendada": "#f97316",
+    "Proposta Enviada": "#eab308",
+    "Fechado": "#10b981",
+    "Perdido": "#ef4444",
+}
+
+
+def atualizar_estagio_lead(lead_id, novo_estagio: str):
+    try:
+        supabase.table("leads").update({"estagio_funil": novo_estagio}).eq("id", lead_id).execute()
+        return True
+    except Exception as e:
+        print(f"[SUPABASE] ❌ Erro ao atualizar estágio do lead: {e}", flush=True)
+        return False
+
+
+def render_kanban_leads(leads: list):
+    str_app.markdown("""
+        <style>
+            div[class*="st-key-kanban_col_"] {
+                background: #131316;
+                border: 1px solid #1f1f24;
+                border-radius: 12px;
+                padding: 0.7rem;
+                min-height: 120px;
+            }
+            div[class*="st-key-kanban_card_"] {
+                background: linear-gradient(155deg, #18181c 0%, #131316 100%);
+                border: 1px solid #232328;
+                border-radius: 10px;
+                padding: 0.7rem 0.8rem;
+                margin-bottom: 0.5rem;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    grupos = {estagio: [] for estagio in ESTAGIOS_FUNIL}
+    for lead in leads:
+        estagio = lead.get("estagio_funil") or "Novo Lead"
+        if estagio not in grupos:
+            estagio = "Novo Lead"
+        grupos[estagio].append(lead)
+
+    colunas_kanban = str_app.columns(len(ESTAGIOS_FUNIL))
+
+    for i, estagio in enumerate(ESTAGIOS_FUNIL):
+        with colunas_kanban[i]:
+            cor = CORES_ESTAGIO.get(estagio, "#71717a")
+            str_app.markdown(
+                f"<p style='text-align:center; font-size:0.78rem; font-weight:700; color:{cor}; "
+                f"margin-bottom:0.5rem;'>● {estagio} ({len(grupos[estagio])})</p>",
+                unsafe_allow_html=True
+            )
+
+            with str_app.container(key=f"kanban_col_{i}"):
+                if not grupos[estagio]:
+                    str_app.caption("Vazio")
+
+                for lead in grupos[estagio]:
+                    with str_app.container(key=f"kanban_card_{lead['id']}"):
+                        str_app.markdown(
+                            f"<p style='margin:0; font-weight:600; color:#fafafa; font-size:0.85rem;'>{lead.get('nome_lead') or 'Sem nome'}</p>"
+                            f"<p style='margin:0.1rem 0 0 0; color:#71717a; font-size:0.74rem;'>{lead.get('telefone_lead') or ''}</p>"
+                            f"<p style='margin:0.2rem 0 0 0; color:#a1a1aa; font-size:0.74rem;'>📍 {lead.get('bairro_preferido') or '–'}</p>",
+                            unsafe_allow_html=True
+                        )
+
+                        novo_estagio = str_app.selectbox(
+                            "Mover para",
+                            ESTAGIOS_FUNIL,
+                            index=ESTAGIOS_FUNIL.index(estagio),
+                            key=f"mover_{lead['id']}",
+                            label_visibility="collapsed"
+                        )
+                        if novo_estagio != estagio:
+                            atualizar_estagio_lead(lead["id"], novo_estagio)
+                            str_app.toast(f"{lead.get('nome_lead', 'Lead')} movido para \"{novo_estagio}\"", icon="✅")
+                            str_app.rerun()
+
+
 def render_meus_leads(cliente: dict):
     cliente_id = cliente["id"]
 
@@ -1248,43 +1334,52 @@ def render_meus_leads(cliente: dict):
 
     str_app.markdown("<br>", unsafe_allow_html=True)
 
-    termo_busca_lead = str_app.text_input(
-        "Buscar lead", placeholder="🔍 Buscar por nome, telefone ou bairro...",
-        label_visibility="collapsed"
-    )
+    aba_kanban, aba_tabela = str_app.tabs(["🗂️ Funil (Kanban)", "📋 Tabela"])
 
-    if termo_busca_lead:
-        termo_l = termo_busca_lead.lower()
-        leads = [
-            l for l in leads
-            if termo_l in (l.get("nome_lead") or "").lower()
-            or termo_l in (l.get("telefone_lead") or "").lower()
-            or termo_l in (l.get("bairro_preferido") or "").lower()
-        ]
+    with aba_kanban:
+        str_app.caption("Use o seletor em cada card para mover o lead entre os estágios do funil.")
+        render_kanban_leads(leads)
 
-    if not leads:
-        str_app.warning("Nenhum lead encontrado com esse termo.")
-        return
+    with aba_tabela:
+        termo_busca_lead = str_app.text_input(
+            "Buscar lead", placeholder="🔍 Buscar por nome, telefone ou bairro...",
+            label_visibility="collapsed", key="busca_tabela_leads"
+        )
 
-    linhas_tabela = []
-    for lead in leads:
-        restricao = lead.get("restricao_cpf")
-        restricao_txt = "Sim" if restricao is True else ("Não" if restricao is False else "–")
+        leads_filtrados = leads
+        if termo_busca_lead:
+            termo_l = termo_busca_lead.lower()
+            leads_filtrados = [
+                l for l in leads
+                if termo_l in (l.get("nome_lead") or "").lower()
+                or termo_l in (l.get("telefone_lead") or "").lower()
+                or termo_l in (l.get("bairro_preferido") or "").lower()
+            ]
 
-        linhas_tabela.append({
-            "Nome": lead.get("nome_lead") or "Não informado",
-            "Telefone": lead.get("telefone_lead") or "–",
-            "Status": lead.get("status_qualificacao") or "Pendente",
-            "Intenção": lead.get("intencao") or "–",
-            "Bairro": lead.get("bairro_preferido") or "–",
-            "Quartos": lead.get("quartos") or "–",
-            "Orçamento": lead.get("orcamento") or "–",
-            "Renda": lead.get("renda_mensal") or "–",
-            "Restrição CPF": restricao_txt,
-            "Notificado": "✅" if lead.get("notificado") else "—",
-        })
+        if not leads_filtrados:
+            str_app.warning("Nenhum lead encontrado com esse termo.")
+            return
 
-    str_app.dataframe(linhas_tabela, use_container_width=True, hide_index=True)
+        linhas_tabela = []
+        for lead in leads_filtrados:
+            restricao = lead.get("restricao_cpf")
+            restricao_txt = "Sim" if restricao is True else ("Não" if restricao is False else "–")
+
+            linhas_tabela.append({
+                "Nome": lead.get("nome_lead") or "Não informado",
+                "Telefone": lead.get("telefone_lead") or "–",
+                "Estágio": lead.get("estagio_funil") or "Novo Lead",
+                "Status Qualificação": lead.get("status_qualificacao") or "Pendente",
+                "Intenção": lead.get("intencao") or "–",
+                "Bairro": lead.get("bairro_preferido") or "–",
+                "Quartos": lead.get("quartos") or "–",
+                "Orçamento": lead.get("orcamento") or "–",
+                "Renda": lead.get("renda_mensal") or "–",
+                "Restrição CPF": restricao_txt,
+                "Notificado": "✅" if lead.get("notificado") else "—",
+            })
+
+        str_app.dataframe(linhas_tabela, use_container_width=True, hide_index=True)
 
 
 # =============================================================================
@@ -1312,7 +1407,7 @@ def render_configuracoes(cliente: dict):
 
     str_app.markdown("""
         <p class="page-eyebrow">Painel do Corretor</p>
-        <h1 class="page-title">Configurações</h1>
+        <h1 class="page-title">Configurações da Sofia</h1>
         <p class="page-subtitle">Personalize o tom e a forma como a Sofia se comunica com seus leads.</p>
         <hr>
     """, unsafe_allow_html=True)
@@ -1376,7 +1471,7 @@ def render_dashboard():
 
     secao = str_app.sidebar.radio(
         "Navegação",
-        ["🔌 Conectar WhatsApp", "🏠 Catálogo de Imóveis", "👥 Meus Leads", "⚙️ Configurações"],
+        ["🔌 Conectar WhatsApp", "🏠 Catálogo de Imóveis", "👥 Meus Leads", "⚙️ Configurações da Sofia"],
         label_visibility="collapsed"
     )
 
