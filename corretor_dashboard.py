@@ -1630,6 +1630,47 @@ def modal_configuracoes_conta(cliente: dict):
 def render_menu_perfil(cliente: dict):
     foto_url = cliente.get("foto_url")
 
+    str_app.markdown("""
+        <style>
+            [data-testid="stSidebar"] [data-testid="stPopover"] button {
+                background: #18181b !important;
+                border: 1px solid #2a2a31 !important;
+                border-radius: 9px !important;
+                color: #d4d4d8 !important;
+                font-weight: 500 !important;
+                text-decoration: none !important;
+                box-shadow: none !important;
+            }
+            [data-testid="stSidebar"] [data-testid="stPopover"] button:hover {
+                border-color: #7d33ff !important;
+                color: #c4b5fd !important;
+                text-decoration: none !important;
+            }
+            [data-testid="stSidebar"] [data-testid="stPopover"] button p {
+                text-decoration: none !important;
+            }
+            div[data-testid="stPopoverBody"] .stButton button {
+                background: transparent !important;
+                border: none !important;
+                color: #d4d4d8 !important;
+                font-weight: 500 !important;
+                text-align: left !important;
+                justify-content: flex-start !important;
+                text-decoration: none !important;
+                box-shadow: none !important;
+                padding: 0.5rem 0.6rem !important;
+            }
+            div[data-testid="stPopoverBody"] .stButton button:hover {
+                background: #18181c !important;
+                color: #c4b5fd !important;
+                text-decoration: none !important;
+            }
+            div[data-testid="stPopoverBody"] .stButton button p {
+                text-decoration: none !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
     with str_app.popover("👤  " + (cliente.get("nome_corretor") or "Corretor"), use_container_width=True):
         if str_app.button("👤 Perfil", use_container_width=True, key="menu_abrir_perfil"):
             modal_perfil(cliente)
