@@ -72,7 +72,77 @@ str_app.markdown("""
                 #09090b;
         }
 
-        #MainMenu, header, footer { visibility: hidden; }
+        #MainMenu, footer { visibility: hidden; }
+
+        /* Mantemos o header visível (ele contém o botão de reabrir o
+           sidebar quando colapsado), mas removemos seu fundo/sombra para
+           que pareça transparente e não quebre o visual. */
+        header[data-testid="stHeader"] {
+            background: transparent !important;
+            box-shadow: none !important;
+        }
+
+        /* =================== SIDEBAR — VISUAL REFINADO =================== */
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #0d0d10 0%, #09090b 100%);
+            border-right: 1px solid #1f1f24;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] > label {
+            display: none;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] > div {
+            gap: 0.3rem;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] label {
+            background: transparent;
+            border-radius: 10px;
+            padding: 0.55rem 0.7rem;
+            margin: 0;
+            transition: background 0.15s ease;
+            cursor: pointer;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+            background: #16161a;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] label span {
+            color: #d4d4d8 !important;
+            font-size: 0.92rem !important;
+            font-weight: 500 !important;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"],
+        [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
+            background: linear-gradient(135deg, rgba(124,58,237,0.18), rgba(124,58,237,0.05));
+            border-left: 2px solid #7d33ff;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) span {
+            color: #c4b5fd !important;
+            font-weight: 600 !important;
+        }
+
+        [data-testid="stSidebar"] [data-testid="stRadio"] label > div:first-child {
+            display: none;
+        }
+
+        [data-testid="stSidebar"] .stButton button {
+            background: #18181b;
+            border: 1px solid #2a2a31;
+            color: #d4d4d8;
+            border-radius: 9px;
+            font-weight: 500;
+            transition: border-color 0.15s ease, color 0.15s ease;
+        }
+
+        [data-testid="stSidebar"] .stButton button:hover {
+            border-color: #ef4444;
+            color: #f87171;
+        }
 
         .login-wrapper {
             display: flex;
@@ -668,6 +738,19 @@ def atualizar_status_imovel(imovel_id: str, novo_status: str):
         return False
 
 
+def atualizar_imovel(imovel_id: str, dados: dict, auth_user_id: str, novas_fotos: list = None, manter_fotos_atuais: list = None):
+    """Atualiza os dados de um imóvel existente, opcionalmente enviando novas fotos."""
+    try:
+        urls_fotos = list(manter_fotos_atuais or [])
+        if novas_fotos:
+            urls_fotos += fazer_upload_fotos(auth_user_id, novas_fotos)
+        dados["fotos_urls"] = urls_fotos
+        supabase.table("imoveis").update(dados).eq("id", imovel_id).execute()
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
 def montar_texto_compartilhamento(dados_imovel: dict) -> str:
     """Monta um texto-resumo do imóvel, pronto para compartilhar em redes sociais."""
     endereco_completo = f"{dados_imovel.get('endereco', '')}, {dados_imovel.get('numero', '')} - {dados_imovel.get('bairro', '')}, {dados_imovel.get('cidade', '')}/{dados_imovel.get('estado', '')}"
@@ -725,6 +808,128 @@ def render_botoes_compartilhar(texto: str):
 
     with str_app.expander("📋 Copiar texto para Instagram ou outras redes"):
         str_app.code(texto, language=None)
+
+
+@str_app.dialog("✏️ Editar imóvel", width="large")
+def modal_editar_imovel(imovel: dict, auth_user_id: str):
+    imovel_id = imovel["id"]
+
+    str_app.markdown("##### 📍 Localização")
+    col_end1, col_end2 = str_app.columns([3, 1])
+    with col_end1:
+        endereco = str_app.text_input("Endereço", value=imovel.get("endereco") or "")
+    with col_end2:
+        numero = str_app.text_input("Número", value=imovel.get("numero") or "")
+
+    col_loc1, col_loc2, col_loc3 = str_app.columns(3)
+    with col_loc1:
+        bairro = str_app.text_input("Bairro", value=imovel.get("bairro") or "")
+    with col_loc2:
+        cidade = str_app.text_input("Cidade", value=imovel.get("cidade") or "")
+    with col_loc3:
+        estado = str_app.text_input("Estado (UF)", value=imovel.get("estado") or "", max_chars=2)
+
+    cep = str_app.text_input("Código postal (CEP)", value=imovel.get("cep") or "")
+
+    str_app.markdown("<hr>", unsafe_allow_html=True)
+    str_app.markdown("##### 🏷️ Dados do imóvel")
+
+    col1, col2 = str_app.columns(2)
+    with col1:
+        tipo = str_app.selectbox("Tipo de imóvel", TIPOS_IMOVEL, index=TIPOS_IMOVEL.index(imovel["tipo_imovel"]) if imovel.get("tipo_imovel") in TIPOS_IMOVEL else 0)
+        finalidade = str_app.selectbox("Finalidade", FINALIDADES_IMOVEL, index=FINALIDADES_IMOVEL.index(imovel["finalidade"]) if imovel.get("finalidade") in FINALIDADES_IMOVEL else 0)
+        preco = str_app.number_input("Preço (R$)", min_value=0.0, step=1000.0, format="%.2f", value=float(imovel.get("preco") or 0))
+    with col2:
+        status = str_app.selectbox("Status", STATUS_IMOVEL, index=STATUS_IMOVEL.index(imovel["status"]) if imovel.get("status") in STATUS_IMOVEL else 0)
+        metragem = str_app.number_input("Metragem (m²)", min_value=0.0, step=1.0, value=float(imovel.get("metragem") or 0))
+
+    str_app.markdown("<hr>", unsafe_allow_html=True)
+    str_app.markdown("##### ✅ Ambientes (informe a quantidade de cada um)")
+
+    col_a1, col_a2, col_a3, col_a4 = str_app.columns(4)
+    with col_a1:
+        quartos = str_app.number_input("🛏️ Quartos", min_value=0, step=1, value=int(imovel.get("quartos") or 0))
+        qtd_suites = str_app.number_input("🛌 Suítes", min_value=0, step=1, value=int(imovel.get("qtd_suites") or 0))
+    with col_a2:
+        qtd_banheiros = str_app.number_input("🚿 Banheiros", min_value=0, step=1, value=int(imovel.get("qtd_banheiros") or 0))
+        vagas = str_app.number_input("🚗 Vagas de garagem", min_value=0, step=1, value=int(imovel.get("vagas_garagem") or 0))
+    with col_a3:
+        qtd_cozinha = str_app.number_input("🍳 Cozinha", min_value=0, step=1, value=int(imovel.get("qtd_cozinha") or 0))
+        qtd_sala_estar = str_app.number_input("🛋️ Sala de estar", min_value=0, step=1, value=int(imovel.get("qtd_sala_estar") or 0))
+    with col_a4:
+        qtd_area = str_app.number_input("🌿 Área", min_value=0, step=1, value=int(imovel.get("qtd_area") or 0))
+        qtd_quintal = str_app.number_input("🏡 Quintal", min_value=0, step=1, value=int(imovel.get("qtd_quintal") or 0))
+
+    qtd_lavanderia = str_app.number_input("🧺 Lavanderia", min_value=0, step=1, value=int(imovel.get("qtd_lavanderia") or 0))
+
+    str_app.markdown("<hr>", unsafe_allow_html=True)
+    descricao = str_app.text_area("Descrição do imóvel", value=imovel.get("descricao") or "")
+
+    fotos_atuais = imovel.get("fotos_urls") or []
+    if fotos_atuais:
+        str_app.markdown("**Fotos atuais:**")
+        str_app.image(fotos_atuais, width=90)
+        manter_fotos = str_app.multiselect(
+            "Desmarque para remover alguma foto atual",
+            options=fotos_atuais, default=fotos_atuais,
+            label_visibility="collapsed"
+        )
+    else:
+        manter_fotos = []
+
+    espacos_restantes = 6 - len(manter_fotos)
+    novas_fotos = []
+    if espacos_restantes > 0:
+        novas_fotos = str_app.file_uploader(
+            f"Adicionar novas fotos (até {espacos_restantes})",
+            type=["jpg", "jpeg", "png", "webp"],
+            accept_multiple_files=True
+        )
+        if novas_fotos and len(novas_fotos) > espacos_restantes:
+            str_app.warning(f"Limite de 6 fotos no total — apenas as {espacos_restantes} primeiras novas serão enviadas.")
+            novas_fotos = novas_fotos[:espacos_restantes]
+
+    col_salvar, col_cancelar = str_app.columns(2)
+    with col_salvar:
+        if str_app.button("💾 Salvar alterações", type="primary", use_container_width=True):
+            if not bairro or not endereco or preco <= 0:
+                str_app.error("Preencha ao menos o endereço, o bairro e o preço.")
+            else:
+                with str_app.spinner("Salvando alterações..."):
+                    dados_imovel = {
+                        "tipo_imovel": tipo,
+                        "finalidade": finalidade,
+                        "endereco": endereco,
+                        "numero": numero,
+                        "bairro": bairro,
+                        "cidade": cidade,
+                        "estado": estado.upper() if estado else None,
+                        "cep": cep,
+                        "quartos": int(quartos),
+                        "vagas_garagem": int(vagas),
+                        "metragem": float(metragem) if metragem else None,
+                        "preco": float(preco),
+                        "status": status,
+                        "descricao": descricao,
+                        "qtd_cozinha": int(qtd_cozinha),
+                        "qtd_sala_estar": int(qtd_sala_estar),
+                        "qtd_area": int(qtd_area),
+                        "qtd_quintal": int(qtd_quintal),
+                        "qtd_banheiros": int(qtd_banheiros),
+                        "qtd_suites": int(qtd_suites),
+                        "qtd_lavanderia": int(qtd_lavanderia),
+                    }
+                    sucesso, erro = atualizar_imovel(imovel_id, dados_imovel, auth_user_id, novas_fotos, manter_fotos)
+
+                if sucesso:
+                    str_app.success("Imóvel atualizado com sucesso!")
+                    time.sleep(1)
+                    str_app.rerun()
+                else:
+                    str_app.error(f"Erro ao salvar: {erro}")
+    with col_cancelar:
+        if str_app.button("Cancelar", use_container_width=True, key="cancelar_edicao"):
+            str_app.rerun()
 
 
 @str_app.dialog("➕ Adicionar novo imóvel", width="large")
@@ -989,9 +1194,14 @@ def render_catalogo_imoveis(cliente: dict):
                 with str_app.popover("📣 Compartilhar", use_container_width=True):
                     render_botoes_compartilhar(montar_texto_compartilhamento(imovel))
 
-                if str_app.button("🗑️ Excluir", key=f"del_{imovel['id']}", use_container_width=True):
-                    excluir_imovel(imovel["id"])
-                    str_app.rerun()
+                col_editar, col_excluir = str_app.columns(2)
+                with col_editar:
+                    if str_app.button("✏️ Editar", key=f"edit_{imovel['id']}", use_container_width=True):
+                        modal_editar_imovel(imovel, auth_user_id)
+                with col_excluir:
+                    if str_app.button("🗑️ Excluir", key=f"del_{imovel['id']}", use_container_width=True):
+                        excluir_imovel(imovel["id"])
+                        str_app.rerun()
 
 
 # =============================================================================
