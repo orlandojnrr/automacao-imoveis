@@ -4,6 +4,16 @@ o painel do Corretor (login/cadastro) e o Admin Dashboard (acesso discreto
 via link), todos dentro do mesmo serviço Streamlit — economia de recursos
 no Railway durante a fase de validação do projeto.
 
+IMPORTANTE sobre a landing page: ela é renderizada via components.html,
+que coloca o conteúdo dentro de um <iframe> sandboxed pelo próprio
+Streamlit. Esse sandbox bloqueia explicitamente a navegação de nível
+superior (não existe "allow-top-navigation" nas políticas padrão), então
+botões em JavaScript dentro do HTML da landing NUNCA conseguem redirecionar
+a aba real do navegador — apenas a página de cima (fora do iframe) pode
+fazer isso. Por isso os botões "Entrar" / "Criar conta" ficam como
+st.link_button do Streamlit, renderizados ACIMA do iframe, nunca dentro
+do HTML da landing.
+
 Quando o negócio crescer e justificar, basta voltar a apontar o Railway
 direto para arquivos/serviços separados — nenhum deles precisa ser
 alterado para isso.
@@ -32,85 +42,96 @@ if "painel_escolhido" not in str_app.session_state:
 DIR_BASE = os.path.dirname(os.path.abspath(__file__))
 
 
+# =============================================================================
+# LANDING PAGE
+# =============================================================================
 def render_landing_page():
-    """Renderiza o HTML estático da landing page dentro do app Streamlit.
+    """Renderiza o HTML estático da landing dentro de um iframe, com uma
+    barra real do Streamlit por cima contendo os botões de navegação
+    (único jeito de sair do iframe — veja nota no topo do arquivo)."""
 
-    Usamos components.html (não st.markdown) porque a landing tem <style>,
-    <script> e uma estrutura de documento completa — coisas que
-    st.markdown não executa de forma confiável. O parâmetro height define
-    quanto espaço vertical o iframe ocupa; como a página é longa e tem
-    rolagem própria, usamos um valor alto e scrolling habilitado.
-    """
-    # Remove o padding/margem padrão do container principal do Streamlit e
-    # zera a cor de fundo dele para igualar ao fundo da landing — sem isso,
-    # sobra uma moldura escura/clara ao redor do iframe.
+    # Esconde a barra de ferramentas padrão do Streamlit (menu, "Deploy",
+    # rodapé) e remove o padding do container para a landing ocupar a tela
+    # cheia, sem moldura ao redor do iframe.
     str_app.markdown("""
         <style>
+            [data-testid="stToolbar"], [data-testid="stDecoration"],
+            #MainMenu, footer, header[data-testid="stHeader"] {
+                display: none !important;
+            }
             [data-testid="stAppViewContainer"] > .main .block-container {
                 padding: 0 !important;
                 max-width: 100% !important;
             }
-            [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+            [data-testid="stAppViewContainer"], [data-testid="stMain"], body {
                 background-color: #09090b !important;
             }
-            iframe {
-                display: block;
+            div[class*="st-key-barra_nav_landing"] {
+                position: sticky; top: 0; z-index: 999;
+                background: rgba(9,9,11,0.92);
+                backdrop-filter: blur(14px);
+                border-bottom: 1px solid #1f1f24;
+                padding: 0.7rem 1.5rem;
+            }
+            div[class*="st-key-barra_nav_landing"] [data-testid="stLinkButton"] a {
+                width: 100%;
+                border-radius: 10px !important;
             }
         </style>
     """, unsafe_allow_html=True)
+
+    with str_app.container(key="barra_nav_landing"):
+        col_logo, col_espaco, col_entrar, col_cadastro = str_app.columns([2, 5, 1, 1.6])
+        with col_logo:
+            str_app.markdown(
+                "<p style='margin:0; color:#fafafa; font-weight:700; font-size:1.05rem;'>⚡ Sofia IA</p>",
+                unsafe_allow_html=True
+            )
+        with col_entrar:
+            if str_app.button("Entrar", key="btn_entrar_landing", use_container_width=True):
+                str_app.session_state["painel_escolhido"] = "corretor"
+                str_app.rerun()
+        with col_cadastro:
+            if str_app.button("Testar gratuito", key="btn_cadastro_landing", use_container_width=True, type="primary"):
+                str_app.session_state["painel_escolhido"] = "corretor"
+                str_app.rerun()
 
     caminho_html = os.path.join(DIR_BASE, "landing_page.html")
     with open(caminho_html, "r", encoding="utf-8") as f:
         html_bruto = f.read()
 
-    # Os botões de "Entrar"/"Criar conta" da landing usam window.location.href
-    # para navegar — mas aqui a landing roda dentro de um <iframe> (efeito do
-    # components.html), então precisamos redirecionar a janela PAI
-    # (window.parent), senão só o conteúdo do iframe mudaria, deixando o
-    # resto da página Streamlit em volta visível e a navegação confusa.
+    # A landing tem sua própria <nav> fixa e botões de CTA com IDs
+    # específicos (ver landing_page.html) que tentam navegar via
+    # JavaScript — isso é bloqueado pelo sandbox do iframe, então
+    # neutralizamos esses cliques aqui (os botões reais já estão na barra
+    # do Streamlit acima). Os links de âncora (#como-funciona, #precos
+    # etc.) continuam funcionando normalmente, pois são apenas rolagem
+    # dentro do próprio iframe.
     html_ajustado = html_bruto.replace(
-        'window.location.href = URL_PAINEL_LOGIN;',
-        'window.parent.location.href = URL_PAINEL_LOGIN;'
-    )
-    html_ajustado = html_ajustado.replace(
-        'const URL_PAINEL_LOGIN = "https://SEU-DOMINIO-DASHBOARDS.up.railway.app";',
-        'const URL_PAINEL_LOGIN = window.parent.location.origin + window.parent.location.pathname + "?ir=painel";'
+        """  ['btn-login-nav','btn-login-footer','btn-cadastro-precos','btn-cadastro-final'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el){
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.location.href = URL_PAINEL_LOGIN;
+      });
+    }
+  });""",
+        """  // Botões de login/cadastro reais ficam na barra do Streamlit, fora
+  // deste iframe (o sandbox do Streamlit bloqueia navegação de topo a
+  // partir de dentro do iframe). Aqui dentro, apenas escondemos a nav
+  // fixa própria da landing para não duplicar com a barra do Streamlit.
+  const navOriginal = document.querySelector('nav');
+  if (navOriginal) navOriginal.style.display = 'none';"""
     )
 
-    # Altura generosa (a página real é mais curta que isso) — sobra de
-    # iframe vazio é preferível a cortar conteúdo, e o fundo do iframe já
-    # está com a mesma cor de base da landing (#09090b), então a sobra
-    # não chama atenção como "vácuo".
-    components.html(html_ajustado, height=6200, scrolling=True)
+    components.html(html_ajustado, height=6400, scrolling=True)
     str_app.stop()
 
 
 # =============================================================================
-# ROTEAMENTO PRINCIPAL
+# ADMIN — LINK DE ACESSO DISCRETO
 # =============================================================================
-query_params = str_app.query_params
-if query_params.get("ir") == "painel" and str_app.session_state["painel_escolhido"] == "landing":
-    str_app.session_state["painel_escolhido"] = "corretor"
-    str_app.query_params.clear()
-
-if str_app.session_state["painel_escolhido"] == "landing":
-    render_landing_page()
-
-elif str_app.session_state["painel_escolhido"] == "admin":
-    if str_app.button("← Voltar"):
-        str_app.session_state["painel_escolhido"] = "corretor"
-        str_app.rerun()
-    runpy.run_path(os.path.join(DIR_BASE, "admin_dashboard.py"), run_name="__main__")
-
-else:
-    runpy.run_path(os.path.join(DIR_BASE, "corretor_dashboard.py"), run_name="__main__")
-    # O link discreto só aparece sob a tela de login/cadastro do corretor —
-    # uma vez autenticado, não há necessidade dele (o corretor já está
-    # dentro do próprio painel).
-    if str_app.session_state.get("cliente_atual") is None:
-        render_link_discreto_admin()
-
-
 def render_link_discreto_admin():
     """Link minúsculo no canto inferior, visível só para quem já sabe que está lá."""
     str_app.markdown("""
@@ -144,7 +165,10 @@ def render_link_discreto_admin():
 # =============================================================================
 # ROTEAMENTO PRINCIPAL
 # =============================================================================
-if str_app.session_state["painel_escolhido"] == "admin":
+if str_app.session_state["painel_escolhido"] == "landing":
+    render_landing_page()
+
+elif str_app.session_state["painel_escolhido"] == "admin":
     if str_app.button("← Voltar"):
         str_app.session_state["painel_escolhido"] = "corretor"
         str_app.rerun()
