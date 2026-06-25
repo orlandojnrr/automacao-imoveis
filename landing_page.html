@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sofia IA — A corretora que nunca dorme</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
+
+  :root{
+    --bg: #09090b;
+    --bg-soft: #0d0d10;
+    --card: #131316;
+    --card-border: #232328;
+    --line: #1f1f24;
+    --text: #fafafa;
+    --text-dim: #a1a1aa;
+    --text-faint: #71717a;
+    --purple: #7d33ff;
+    --purple-soft: #c4b5fd;
+    --gold: #f5b700;
+    --green: #4ade80;
+  }
+
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    line-height:1.5;
+    overflow-x:hidden;
+  }
+  h1,h2,h3,.display{
+    font-family:'Space Grotesk',sans-serif;
+    letter-spacing:-0.02em;
+  }
+  a{color:inherit;text-decoration:none;}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 28px;}
+  img{max-width:100%;display:block;}
+
+  ::selection{background:var(--purple);color:#fff;}
+
+  :focus-visible{
+    outline:2px solid var(--gold);
+    outline-offset:3px;
+    border-radius:4px;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:0.01ms !important; animation-iteration-count:1 !important; transition-duration:0.01ms !important; scroll-behavior:auto !important;}
+  }
+
+  /* ===================== BACKGROUND AMBIENTE ===================== */
+  .bg-glow{
+    position:fixed; inset:0; z-index:-1; pointer-events:none;
+    background:
+      radial-gradient(circle at 14% 8%, rgba(124,58,237,0.20), transparent 40%),
+      radial-gradient(circle at 88% 28%, rgba(245,183,0,0.10), transparent 38%),
+      radial-gradient(circle at 50% 95%, rgba(124,58,237,0.12), transparent 45%),
+      var(--bg);
+  }
+
+  /* ===================== NAV ===================== */
+  nav{
+    position:sticky; top:0; z-index:50;
+    backdrop-filter:blur(14px);
+    background:rgba(9,9,11,0.72);
+    border-bottom:1px solid var(--line);
+  }
+  nav .wrap{
+    display:flex; align-items:center; justify-content:space-between;
+    height:72px;
+  }
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; font-size:1.05rem;}
+  .brand .mark{
+    width:34px; height:34px; border-radius:10px;
+    background:linear-gradient(135deg,var(--purple),#5b21b6);
+    display:flex; align-items:center; justify-content:center;
+    font-size:16px; box-shadow:0 6px 18px rgba(124,58,237,0.4);
+  }
+  .nav-links{display:flex; gap:32px; font-size:0.92rem; color:var(--text-dim);}
+  .nav-links a:hover{color:var(--text);}
+  .nav-cta{display:flex; gap:12px; align-items:center;}
+
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    padding:0.7rem 1.3rem;
+    border-radius:10px;
+    font-weight:600;
+    font-size:0.92rem;
+    cursor:pointer;
+    border:1px solid transparent;
+    transition:filter 0.15s ease, transform 0.05s ease, border-color 0.15s ease, background 0.15s ease;
+    white-space:nowrap;
+  }
+  .btn:active{transform:scale(0.98);}
+  .btn-primary{
+    background:linear-gradient(135deg,var(--purple),#6425e0);
+    color:#fff;
+    box-shadow:0 8px 24px rgba(124,58,237,0.35);
+  }
+  .btn-primary:hover{filter:brightness(1.1);}
+  .btn-ghost{
+    background:transparent;
+    border:1px solid var(--card-border);
+    color:var(--text-dim);
+  }
+  .btn-ghost:hover{border-color:var(--purple); color:var(--purple-soft);}
+  .btn-gold{
+    background:linear-gradient(135deg,var(--gold),#d49a00);
+    color:#1a1500;
+  }
+  .btn-gold:hover{filter:brightness(1.08);}
+
+  /* ===================== HERO ===================== */
+  .hero{padding:100px 0 70px;}
+  .hero-grid{display:grid; grid-template-columns:1.1fr 0.9fr; gap:60px; align-items:center;}
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:8px;
+    font-size:0.78rem; font-weight:700; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--purple-soft);
+    background:rgba(124,58,237,0.1);
+    border:1px solid rgba(124,58,237,0.25);
+    padding:0.4rem 0.9rem; border-radius:999px;
+    margin-bottom:24px;
+  }
+  .eyebrow .dot{width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 8px var(--green); animation:pulse-dot 2s infinite;}
+  @keyframes pulse-dot{0%,100%{opacity:1;} 50%{opacity:0.4;}}
+
+  h1.hero-title{
+    font-size:clamp(2.4rem, 4.6vw, 3.6rem);
+    font-weight:700;
+    line-height:1.08;
+    margin-bottom:24px;
+  }
+  h1.hero-title .accent{color:var(--purple-soft);}
+  h1.hero-title .accent-gold{color:var(--gold);}
+
+  .hero-sub{
+    font-size:1.1rem;
+    color:var(--text-dim);
+    max-width:520px;
+    margin-bottom:36px;
+  }
+  .hero-actions{display:flex; gap:14px; margin-bottom:28px; flex-wrap:wrap;}
+  .hero-note{font-size:0.85rem; color:var(--text-faint); display:flex; align-items:center; gap:8px;}
+
+  /* ===================== RADAR DE LEADS (elemento assinatura) ===================== */
+  .radar-card{
+    background:linear-gradient(160deg, var(--bg-soft) 0%, #0a0a0c 100%);
+    border:1px solid var(--card-border);
+    border-radius:20px;
+    padding:24px;
+    box-shadow:0 30px 80px rgba(0,0,0,0.55);
+    position:relative;
+    overflow:hidden;
+  }
+  .radar-header{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:18px;
+  }
+  .radar-title{font-size:0.85rem; font-weight:600; color:var(--text-dim); display:flex; align-items:center; gap:8px;}
+  .radar-title .live-dot{width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 10px var(--green); animation:pulse-dot 1.6s infinite;}
+  .radar-stat{font-size:0.78rem; color:var(--text-faint);}
+
+  .radar-feed{display:flex; flex-direction:column; gap:10px; min-height:280px;}
+  .lead-row{
+    display:flex; align-items:center; gap:12px;
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:11px 14px;
+    opacity:0;
+    animation:lead-in 0.5s ease forwards;
+  }
+  @keyframes lead-in{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+  .lead-avatar{
+    width:34px; height:34px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:0.8rem; font-weight:700; flex-shrink:0;
+    background:linear-gradient(135deg,#3b82f6,#1d4ed8); color:#fff;
+  }
+  .lead-info{flex:1; min-width:0;}
+  .lead-name{font-size:0.86rem; font-weight:600; color:var(--text);}
+  .lead-detail{font-size:0.76rem; color:var(--text-faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .lead-badge{
+    font-size:0.68rem; font-weight:700; padding:3px 9px; border-radius:999px; flex-shrink:0;
+  }
+  .lead-badge.novo{background:rgba(59,130,246,0.15); color:#93c5fd;}
+  .lead-badge.qualificado{background:rgba(74,222,128,0.15); color:var(--green);}
+
+  .radar-footer{
+    margin-top:18px; padding-top:16px; border-top:1px solid var(--line);
+    display:flex; justify-content:space-between; font-size:0.78rem; color:var(--text-faint);
+  }
+  .radar-footer b{color:var(--text); font-size:1rem; font-family:'Space Grotesk',sans-serif;}
+
+  /* ===================== LOGOS / PROVA SOCIAL ===================== */
+  .logos-section{padding:36px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line);}
+  .logos-label{text-align:center; font-size:0.8rem; color:var(--text-faint); margin-bottom:22px;}
+  .logos-row{display:flex; justify-content:center; gap:48px; flex-wrap:wrap; align-items:center; opacity:0.55; filter:grayscale(1);}
+  .logos-row span{font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:1.05rem; color:var(--text-dim);}
+
+  /* ===================== SECTION GENERIC ===================== */
+  section{padding:96px 0;}
+  .section-head{max-width:640px; margin-bottom:56px;}
+  .section-eyebrow{
+    font-size:0.78rem; font-weight:700; letter-spacing:0.08em; text-transform:uppercase;
+    color:var(--gold); margin-bottom:14px;
+  }
+  .section-title{font-size:clamp(1.8rem,3vw,2.4rem); font-weight:700; margin-bottom:16px;}
+  .section-sub{color:var(--text-dim); font-size:1.05rem;}
+  .center{text-align:center; margin-left:auto; margin-right:auto;}
+
+  /* ===================== COMO FUNCIONA ===================== */
+  .steps{display:grid; grid-template-columns:repeat(3,1fr); gap:24px;}
+  .step-card{
+    background:var(--card); border:1px solid var(--card-border); border-radius:16px;
+    padding:28px; position:relative;
+  }
+  .step-num{
+    font-family:'Space Grotesk',sans-serif; font-size:0.78rem; font-weight:700;
+    color:var(--purple-soft); background:rgba(124,58,237,0.12);
+    width:28px; height:28px; border-radius:8px;
+    display:flex; align-items:center; justify-content:center;
+    margin-bottom:18px;
+  }
+  .step-card h3{font-size:1.1rem; margin-bottom:10px; font-weight:600;}
+  .step-card p{color:var(--text-dim); font-size:0.92rem;}
+
+  /* ===================== ANTES / DEPOIS ===================== */
+  .compare{display:grid; grid-template-columns:1fr 1fr; gap:24px;}
+  .compare-card{border-radius:16px; padding:32px; border:1px solid var(--card-border);}
+  .compare-card.bad{background:linear-gradient(160deg, rgba(239,68,68,0.06), transparent); }
+  .compare-card.good{background:linear-gradient(160deg, rgba(124,58,237,0.10), transparent);}
+  .compare-card h3{font-size:1.15rem; margin-bottom:20px; display:flex; align-items:center; gap:10px;}
+  .compare-card ul{list-style:none; display:flex; flex-direction:column; gap:14px;}
+  .compare-card li{display:flex; gap:12px; font-size:0.94rem; color:var(--text-dim); align-items:flex-start;}
+  .compare-card.bad li::before{content:"✕"; color:#f87171; font-weight:700; flex-shrink:0;}
+  .compare-card.good li::before{content:"✓"; color:var(--green); font-weight:700; flex-shrink:0;}
+
+  /* ===================== FEATURES GRID ===================== */
+  .features{display:grid; grid-template-columns:repeat(3,1fr); gap:20px;}
+  .feature-card{
+    background:var(--card); border:1px solid var(--card-border); border-radius:16px;
+    padding:26px;
+    transition:border-color 0.2s ease, transform 0.2s ease;
+  }
+  .feature-card:hover{border-color:rgba(124,58,237,0.4); transform:translateY(-2px);}
+  .feature-icon{font-size:1.6rem; margin-bottom:14px; display:block;}
+  .feature-card h3{font-size:1rem; margin-bottom:8px; font-weight:600;}
+  .feature-card p{font-size:0.88rem; color:var(--text-faint);}
+
+  /* ===================== PRICING TEASER ===================== */
+  .pricing-card{
+    background:linear-gradient(160deg, var(--bg-soft), #0a0a0c);
+    border:1px solid var(--card-border);
+    border-radius:24px;
+    padding:48px;
+    display:grid; grid-template-columns:1fr auto; gap:40px; align-items:center;
+  }
+  .pricing-card h3{font-size:1.6rem; margin-bottom:12px;}
+  .pricing-card p{color:var(--text-dim); max-width:420px;}
+  .pricing-cta{text-align:right;}
+  .pricing-price{font-family:'Space Grotesk',sans-serif; font-size:2.4rem; font-weight:700; margin-bottom:4px;}
+  .pricing-price span{font-size:1rem; color:var(--text-faint); font-weight:500;}
+
+  /* ===================== FAQ ===================== */
+  .faq-list{display:flex; flex-direction:column; gap:1px; border:1px solid var(--card-border); border-radius:16px; overflow:hidden;}
+  .faq-item{background:var(--card); border-bottom:1px solid var(--line);}
+  .faq-item:last-child{border-bottom:none;}
+  .faq-q{
+    width:100%; text-align:left; background:none; border:none; color:var(--text);
+    padding:22px 26px; font-size:0.98rem; font-weight:600; cursor:pointer;
+    display:flex; justify-content:space-between; align-items:center; gap:16px;
+    font-family:inherit;
+  }
+  .faq-q .icon{font-size:1.2rem; color:var(--text-faint); transition:transform 0.2s ease; flex-shrink:0;}
+  .faq-item.open .faq-q .icon{transform:rotate(45deg); color:var(--purple-soft);}
+  .faq-a{
+    max-height:0; overflow:hidden; transition:max-height 0.25s ease;
+    padding:0 26px;
+  }
+  .faq-item.open .faq-a{max-height:200px; padding-bottom:22px;}
+  .faq-a p{color:var(--text-dim); font-size:0.92rem; line-height:1.6;}
+
+  /* ===================== FINAL CTA ===================== */
+  .final-cta{
+    text-align:center;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(124,58,237,0.25), transparent 60%),
+      var(--bg-soft);
+    border-radius:28px;
+    padding:80px 40px;
+    border:1px solid var(--card-border);
+  }
+  .final-cta h2{font-size:clamp(1.8rem,3.4vw,2.6rem); margin-bottom:18px;}
+  .final-cta p{color:var(--text-dim); max-width:480px; margin:0 auto 36px;}
+
+  /* ===================== FOOTER ===================== */
+  footer{border-top:1px solid var(--line); padding:48px 0 32px;}
+  .footer-grid{display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:20px;}
+  .footer-links{display:flex; gap:28px; font-size:0.86rem; color:var(--text-faint);}
+  .footer-links a:hover{color:var(--text-dim);}
+  .footer-copy{font-size:0.8rem; color:var(--text-faint); margin-top:24px; text-align:center;}
+
+  /* ===================== RESPONSIVE ===================== */
+  @media (max-width:900px){
+    .hero-grid{grid-template-columns:1fr; gap:48px;}
+    .nav-links{display:none;}
+    .steps, .features{grid-template-columns:1fr;}
+    .compare{grid-template-columns:1fr;}
+    .pricing-card{grid-template-columns:1fr; text-align:center;}
+    .pricing-cta{text-align:center;}
+    .logos-row{gap:28px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-glow"></div>
+
+<!-- ===================== NAV ===================== -->
+<nav>
+  <div class="wrap">
+    <div class="brand">
+      <div class="mark">⚡</div>
+      Sofia IA
+    </div>
+    <div class="nav-links">
+      <a href="#como-funciona">Como funciona</a>
+      <a href="#recursos">Recursos</a>
+      <a href="#precos">Preços</a>
+      <a href="#faq">Perguntas</a>
+    </div>
+    <div class="nav-cta">
+      <a href="#" class="btn btn-ghost" id="btn-login-nav">Entrar</a>
+      <a href="#precos" class="btn btn-primary">Testar gratuito</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ===================== HERO ===================== -->
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="eyebrow"><span class="dot"></span> Atendendo leads agora, 24 horas por dia</div>
+      <h1 class="hero-title">A corretora que <span class="accent">nunca dorme</span> e nunca perde um <span class="accent-gold">lead</span></h1>
+      <p class="hero-sub">A Sofia qualifica cada contato do seu WhatsApp em segundos — intenção, orçamento, bairro e renda — e só entrega ao seu time quando o lead está pronto para fechar.</p>
+      <div class="hero-actions">
+        <a href="#precos" class="btn btn-primary">Quero testar com minha imobiliária</a>
+        <a href="#como-funciona" class="btn btn-ghost">Ver como funciona →</a>
+      </div>
+      <div class="hero-note">✅ Sem cartão de crédito · Configuração em minutos</div>
+    </div>
+
+    <div class="radar-card">
+      <div class="radar-header">
+        <div class="radar-title"><span class="live-dot"></span> Radar de leads — em tempo real</div>
+        <div class="radar-stat" id="radar-clock">agora</div>
+      </div>
+      <div class="radar-feed" id="radar-feed"></div>
+      <div class="radar-footer">
+        <div>Qualificados hoje<br><b id="radar-count">0</b></div>
+        <div>Tempo médio de resposta<br><b>9s</b></div>
+        <div>Taxa de qualificação<br><b>68%</b></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ===================== LOGOS ===================== -->
+<div class="logos-section">
+  <div class="wrap">
+    <p class="logos-label">Construído para imobiliárias e corretores independentes que não podem perder um lead</p>
+    <div class="logos-row">
+      <span>Imobiliária Silva</span>
+      <span>Costa Imóveis</span>
+      <span>Grupo Horizonte</span>
+      <span>Litoral Negócios</span>
+      <span>Prime Realty</span>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== COMO FUNCIONA ===================== -->
+<section id="como-funciona">
+  <div class="wrap">
+    <div class="section-head center">
+      <div class="section-eyebrow">Como funciona</div>
+      <h2 class="section-title">Do "oi" no WhatsApp ao lead pronto para fechar</h2>
+      <p class="section-sub">Três etapas, zero esforço manual do seu time até o momento certo.</p>
+    </div>
+    <div class="steps">
+      <div class="step-card">
+        <div class="step-num">01</div>
+        <h3>Conecte seu WhatsApp</h3>
+        <p>Escaneie um QR Code e a Sofia já está pronta para atender pelo número que seus clientes já conhecem — sem trocar de número, sem app novo.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-num">02</div>
+        <h3>Sofia qualifica em segundos</h3>
+        <p>Intenção, bairro, quartos, orçamento, renda e restrição no CPF — coletados numa conversa natural, sem parecer um formulário.</p>
+      </div>
+      <div class="step-card">
+        <div class="step-num">03</div>
+        <h3>Você recebe o lead quente</h3>
+        <p>Só quando o perfil está completo, a Sofia te avisa no seu próprio WhatsApp pessoal. Você assume a conversa e fecha o negócio.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== ANTES / DEPOIS ===================== -->
+<section>
+  <div class="wrap">
+    <div class="section-head center">
+      <div class="section-eyebrow">A diferença real</div>
+      <h2 class="section-title">O que muda na sua rotina</h2>
+    </div>
+    <div class="compare">
+      <div class="compare-card bad">
+        <h3>😓 Sem a Sofia</h3>
+        <ul>
+          <li>Leads que chegam de madrugada esperam até o dia seguinte</li>
+          <li>Você perde tempo fazendo as mesmas 6 perguntas em todo contato</li>
+          <li>Curiosos e compradores reais chegam misturados, sem triagem</li>
+          <li>Sem visão clara de quantos leads realmente valem a pena</li>
+        </ul>
+      </div>
+      <div class="compare-card good">
+        <h3>⚡ Com a Sofia</h3>
+        <ul>
+          <li>Resposta em segundos, qualquer hora, qualquer dia</li>
+          <li>A triagem acontece sozinha, sem você digitar nada</li>
+          <li>Só chega até você quem já está pronto pra negociar</li>
+          <li>Catálogo, leads e funil organizados num painel só</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== RECURSOS ===================== -->
+<section id="recursos">
+  <div class="wrap">
+    <div class="section-head center">
+      <div class="section-eyebrow">Tudo incluso</div>
+      <h2 class="section-title">Um painel completo para o seu dia a dia</h2>
+      <p class="section-sub">Não é só um chatbot — é o sistema operacional da sua carteira de imóveis.</p>
+    </div>
+    <div class="features">
+      <div class="feature-card">
+        <span class="feature-icon">🏠</span>
+        <h3>Catálogo de imóveis</h3>
+        <p>Cadastre seus imóveis com fotos, localização e detalhes completos. A Sofia sugere o que combina com cada lead.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🗂️</span>
+        <h3>Funil de vendas (CRM)</h3>
+        <p>Acompanhe cada lead do primeiro contato até o fechamento, em colunas claras: conversando, qualificado, visita, fechado.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">💬</span>
+        <h3>Personalização de tom</h3>
+        <p>Ajuste como a Sofia se comunica — mais formal, mais descontraída, com a identidade da sua imobiliária.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">📣</span>
+        <h3>Compartilhamento fácil</h3>
+        <p>Divulgue qualquer imóvel do catálogo direto no WhatsApp, Facebook ou Instagram em um clique.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🔒</span>
+        <h3>Seus dados, isolados</h3>
+        <p>Cada conta tem seu próprio espaço — seus leads e imóveis nunca se misturam com os de outro corretor.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">📱</span>
+        <h3>Acesso de qualquer lugar</h3>
+        <p>Seu painel funciona no computador ou no celular, sempre que você precisar acompanhar algo.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== PREÇOS (TEASER) ===================== -->
+<section id="precos">
+  <div class="wrap">
+    <div class="pricing-card">
+      <div>
+        <h3>Comece a testar hoje mesmo</h3>
+        <p>Conecte seu WhatsApp, cadastre seus imóveis e veja a Sofia qualificar seu primeiro lead — sem compromisso, sem cartão de crédito.</p>
+      </div>
+      <div class="pricing-cta">
+        <div class="pricing-price">Sob consulta<span></span></div>
+        <a href="#" class="btn btn-gold" id="btn-cadastro-precos">Criar minha conta</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== FAQ ===================== -->
+<section id="faq">
+  <div class="wrap">
+    <div class="section-head center">
+      <div class="section-eyebrow">Perguntas frequentes</div>
+      <h2 class="section-title">Tudo que você precisa saber</h2>
+    </div>
+    <div class="faq-list" id="faq-list">
+      <div class="faq-item">
+        <button class="faq-q">A Sofia substitui o corretor? <span class="icon">+</span></button>
+        <div class="faq-a"><p>Não. A Sofia faz a triagem inicial — as 6 perguntas que todo corretor faz antes de investir tempo numa conversa. Quando o lead está qualificado, ela te avisa e você assume para fechar o negócio com seu jeito e sua expertise.</p></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">Preciso trocar de número de WhatsApp? <span class="icon">+</span></button>
+        <div class="faq-a"><p>Não. A Sofia conecta ao número que você já usa, via QR Code — igual conectar o WhatsApp Web. Seus contatos continuam falando com o mesmo número de sempre.</p></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">Quanto tempo leva para configurar? <span class="icon">+</span></button>
+        <div class="faq-a"><p>Minutos. Você cria sua conta, escaneia o QR Code para conectar o WhatsApp, e já pode cadastrar seus primeiros imóveis no catálogo. Não precisa de equipe técnica.</p></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">Meus dados ficam seguros? <span class="icon">+</span></button>
+        <div class="faq-a"><p>Sim. Cada conta tem seus próprios dados isolados — seus leads, imóveis e conversas nunca se misturam com os de outro corretor na plataforma.</p></div>
+      </div>
+      <div class="faq-item">
+        <button class="faq-q">Posso personalizar como a Sofia fala? <span class="icon">+</span></button>
+        <div class="faq-a"><p>Sim. No seu painel você ajusta o tom de voz, menciona o nome da sua imobiliária e adapta o estilo de comunicação — sem afetar a qualidade da qualificação dos leads.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== CTA FINAL ===================== -->
+<section>
+  <div class="wrap">
+    <div class="final-cta">
+      <h2>Pronto para parar de perder leads?</h2>
+      <p>Conecte seu WhatsApp agora e veja a Sofia trabalhar pela sua imobiliária 24 horas por dia.</p>
+      <a href="#" class="btn btn-primary" id="btn-cadastro-final">Criar minha conta gratuita</a>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== FOOTER ===================== -->
+<footer>
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="brand">
+        <div class="mark">⚡</div>
+        Sofia IA
+      </div>
+      <div class="footer-links">
+        <a href="#como-funciona">Como funciona</a>
+        <a href="#recursos">Recursos</a>
+        <a href="#precos">Preços</a>
+        <a href="#faq">Perguntas</a>
+        <a href="#" id="btn-login-footer">Entrar no painel</a>
+      </div>
+    </div>
+    <p class="footer-copy">© 2026 Sofia IA. Feita para corretores que não querem perder mais nenhum lead.</p>
+  </div>
+</footer>
+
+<script>
+  // ===================== FAQ accordion =====================
+  document.querySelectorAll('.faq-q').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.faq-item');
+      const wasOpen = item.classList.contains('open');
+      document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open'));
+      if(!wasOpen) item.classList.add('open');
+    });
+  });
+
+  // ===================== Botões -> painel de login =====================
+  // Ajuste esta URL para o endereço real do seu serviço de dashboards no Railway.
+  const URL_PAINEL_LOGIN = "https://SEU-DOMINIO-DASHBOARDS.up.railway.app";
+
+  ['btn-login-nav','btn-login-footer','btn-cadastro-precos','btn-cadastro-final'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el){
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.location.href = URL_PAINEL_LOGIN;
+      });
+    }
+  });
+
+  // ===================== Radar de leads — feed simulado =====================
+  const nomes = ["Ana C.", "Pedro M.", "Juliana R.", "Carlos S.", "Mariana F.", "Rafael T.", "Beatriz L.", "Thiago A."];
+  const bairros = ["Jardim Planalto", "Centro", "Boa Viagem", "Ponta Negra", "Capim Macio", "Lagoa Nova"];
+  const cores = ["#3b82f6","#7d33ff","#f5b700","#10b981","#ec4899"];
+
+  const feed = document.getElementById('radar-feed');
+  const countEl = document.getElementById('radar-count');
+  let count = 0;
+  const MAX_VISIVEL = 5;
+
+  function clockTick(){
+    const el = document.getElementById('radar-clock');
+    const agora = new Date();
+    el.textContent = agora.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+  }
+  clockTick();
+  setInterval(clockTick, 30000);
+
+  function addLeadRow(){
+    const nome = nomes[Math.floor(Math.random()*nomes.length)];
+    const bairro = bairros[Math.floor(Math.random()*bairros.length)];
+    const cor = cores[Math.floor(Math.random()*cores.length)];
+    const inicial = nome.charAt(0);
+    const status = Math.random() > 0.45 ? 'qualificado' : 'novo';
+
+    const row = document.createElement('div');
+    row.className = 'lead-row';
+    row.innerHTML = `
+      <div class="lead-avatar" style="background:linear-gradient(135deg, ${cor}, ${cor}aa)">${inicial}</div>
+      <div class="lead-info">
+        <div class="lead-name">${nome}</div>
+        <div class="lead-detail">${bairro} · quer comprar</div>
+      </div>
+      <div class="lead-badge ${status}">${status === 'qualificado' ? 'Qualificado' : 'Novo lead'}</div>
+    `;
+    feed.prepend(row);
+
+    if(status === 'qualificado'){
+      count++;
+      countEl.textContent = count;
+    }
+
+    while(feed.children.length > MAX_VISIVEL){
+      feed.removeChild(feed.lastChild);
+    }
+  }
+
+  // popula inicial e mantém vivo
+  addLeadRow();
+  setTimeout(addLeadRow, 600);
+  setTimeout(addLeadRow, 1300);
+  setInterval(addLeadRow, 4200);
+</script>
+
+</body>
+</html>

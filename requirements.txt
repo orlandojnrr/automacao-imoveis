@@ -6,6 +6,7 @@ python-dotenv
 google-genai
 google-api-core
 supabase
+redis 
 
 # Base para o Dashboard
 streamlit

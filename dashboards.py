@@ -1,17 +1,18 @@
 """
-dashboards.py — Ponto de entrada único hospedando tanto o painel do
-Corretor (público, padrão) quanto o Admin Dashboard (acesso discreto via
-link no rodapé), dentro do mesmo serviço Streamlit — economia de recursos
+dashboards.py — Ponto de entrada único hospedando a Landing Page pública,
+o painel do Corretor (login/cadastro) e o Admin Dashboard (acesso discreto
+via link), todos dentro do mesmo serviço Streamlit — economia de recursos
 no Railway durante a fase de validação do projeto.
 
 Quando o negócio crescer e justificar, basta voltar a apontar o Railway
-direto para admin_dashboard.py e corretor_dashboard.py como serviços
-separados — nenhum dos dois arquivos precisa ser alterado para isso.
+direto para arquivos/serviços separados — nenhum deles precisa ser
+alterado para isso.
 """
 
 import os
 import runpy
 import streamlit as str_app
+import streamlit.components.v1 as components
 
 # set_page_config só pode ser chamado uma vez por execução, e precisa ser
 # a primeira chamada Streamlit do processo — por isso ele mora aqui, no
@@ -24,11 +25,67 @@ str_app.set_page_config(
 )
 
 if "painel_escolhido" not in str_app.session_state:
-    # "corretor" é a porta de entrada padrão — quem cai aqui de fora
-    # (cliente pagante) nunca vê menção ao painel administrativo.
-    str_app.session_state["painel_escolhido"] = "corretor"
+    # "landing" é a porta de entrada padrão — visitantes veem a página de
+    # apresentação antes de qualquer tela de login.
+    str_app.session_state["painel_escolhido"] = "landing"
 
 DIR_BASE = os.path.dirname(os.path.abspath(__file__))
+
+
+def render_landing_page():
+    """Renderiza o HTML estático da landing page dentro do app Streamlit.
+
+    Usamos components.html (não st.markdown) porque a landing tem <style>,
+    <script> e uma estrutura de documento completa — coisas que
+    st.markdown não executa de forma confiável. O parâmetro height define
+    quanto espaço vertical o iframe ocupa; como a página é longa e tem
+    rolagem própria, usamos um valor alto e scrolling habilitado.
+    """
+    caminho_html = os.path.join(DIR_BASE, "landing_page.html")
+    with open(caminho_html, "r", encoding="utf-8") as f:
+        html_bruto = f.read()
+
+    # Os botões de "Entrar"/"Criar conta" da landing usam window.location.href
+    # para navegar — mas aqui a landing roda dentro de um <iframe> (efeito do
+    # components.html), então precisamos redirecionar a janela PAI
+    # (window.parent), senão só o conteúdo do iframe mudaria, deixando o
+    # resto da página Streamlit em volta visível e a navegação confusa.
+    html_ajustado = html_bruto.replace(
+        'window.location.href = URL_PAINEL_LOGIN;',
+        'window.parent.location.href = URL_PAINEL_LOGIN;'
+    )
+    html_ajustado = html_ajustado.replace(
+        'const URL_PAINEL_LOGIN = "https://SEU-DOMINIO-DASHBOARDS.up.railway.app";',
+        'const URL_PAINEL_LOGIN = window.parent.location.origin + window.parent.location.pathname + "?ir=painel";'
+    )
+
+    components.html(html_ajustado, height=5400, scrolling=True)
+
+
+# =============================================================================
+# ROTEAMENTO PRINCIPAL
+# =============================================================================
+query_params = str_app.query_params
+if query_params.get("ir") == "painel" and str_app.session_state["painel_escolhido"] == "landing":
+    str_app.session_state["painel_escolhido"] = "corretor"
+    str_app.query_params.clear()
+
+if str_app.session_state["painel_escolhido"] == "landing":
+    render_landing_page()
+
+elif str_app.session_state["painel_escolhido"] == "admin":
+    if str_app.button("← Voltar"):
+        str_app.session_state["painel_escolhido"] = "corretor"
+        str_app.rerun()
+    runpy.run_path(os.path.join(DIR_BASE, "admin_dashboard.py"), run_name="__main__")
+
+else:
+    runpy.run_path(os.path.join(DIR_BASE, "corretor_dashboard.py"), run_name="__main__")
+    # O link discreto só aparece sob a tela de login/cadastro do corretor —
+    # uma vez autenticado, não há necessidade dele (o corretor já está
+    # dentro do próprio painel).
+    if str_app.session_state.get("cliente_atual") is None:
+        render_link_discreto_admin()
 
 
 def render_link_discreto_admin():
