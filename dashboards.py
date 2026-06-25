@@ -41,6 +41,24 @@ def render_landing_page():
     quanto espaço vertical o iframe ocupa; como a página é longa e tem
     rolagem própria, usamos um valor alto e scrolling habilitado.
     """
+    # Remove o padding/margem padrão do container principal do Streamlit e
+    # zera a cor de fundo dele para igualar ao fundo da landing — sem isso,
+    # sobra uma moldura escura/clara ao redor do iframe.
+    str_app.markdown("""
+        <style>
+            [data-testid="stAppViewContainer"] > .main .block-container {
+                padding: 0 !important;
+                max-width: 100% !important;
+            }
+            [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+                background-color: #09090b !important;
+            }
+            iframe {
+                display: block;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
     caminho_html = os.path.join(DIR_BASE, "landing_page.html")
     with open(caminho_html, "r", encoding="utf-8") as f:
         html_bruto = f.read()
@@ -59,7 +77,12 @@ def render_landing_page():
         'const URL_PAINEL_LOGIN = window.parent.location.origin + window.parent.location.pathname + "?ir=painel";'
     )
 
-    components.html(html_ajustado, height=5400, scrolling=True)
+    # Altura generosa (a página real é mais curta que isso) — sobra de
+    # iframe vazio é preferível a cortar conteúdo, e o fundo do iframe já
+    # está com a mesma cor de base da landing (#09090b), então a sobra
+    # não chama atenção como "vácuo".
+    components.html(html_ajustado, height=6200, scrolling=True)
+    str_app.stop()
 
 
 # =============================================================================
