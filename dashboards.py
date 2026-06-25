@@ -56,26 +56,42 @@ def render_landing_page():
     str_app.markdown("""
         <style>
             [data-testid="stToolbar"], [data-testid="stDecoration"],
-            #MainMenu, footer, header[data-testid="stHeader"] {
+            #MainMenu, footer, [data-testid="stHeader"], .stAppHeader {
                 display: none !important;
+                height: 0 !important;
+                visibility: hidden !important;
             }
-            [data-testid="stAppViewContainer"] > .main .block-container {
-                padding: 0 !important;
+            [data-testid="stAppViewContainer"] {
+                background-color: #09090b !important;
+            }
+            [data-testid="stAppViewContainer"] > .main {
+                padding-top: 0 !important;
+            }
+            [data-testid="stMain"] {
+                background-color: #09090b !important;
+            }
+            .block-container, .stMainBlockContainer,
+            div[class*="block-container"] {
+                padding-top: 0 !important;
+                padding-bottom: 0 !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+                margin-top: 0 !important;
                 max-width: 100% !important;
             }
-            [data-testid="stAppViewContainer"], [data-testid="stMain"], body {
+            html, body {
+                margin: 0 !important;
+                padding: 0 !important;
                 background-color: #09090b !important;
             }
             div[class*="st-key-barra_nav_landing"] {
-                position: sticky; top: 0; z-index: 999;
-                background: rgba(9,9,11,0.92);
-                backdrop-filter: blur(14px);
+                background: #0d0d10;
                 border-bottom: 1px solid #1f1f24;
                 padding: 0.7rem 1.5rem;
+                margin-top: 0 !important;
             }
-            div[class*="st-key-barra_nav_landing"] [data-testid="stLinkButton"] a {
-                width: 100%;
-                border-radius: 10px !important;
+            div[class*="st-key-barra_nav_landing"] [data-testid="stVerticalBlock"] {
+                gap: 0 !important;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -84,7 +100,7 @@ def render_landing_page():
         col_logo, col_espaco, col_entrar, col_cadastro = str_app.columns([2, 5, 1, 1.6])
         with col_logo:
             str_app.markdown(
-                "<p style='margin:0; color:#fafafa; font-weight:700; font-size:1.05rem;'>⚡ Sofia IA</p>",
+                "<p style='margin:0; color:#fafafa; font-weight:700; font-size:1.05rem; line-height:2.4rem;'>⚡ Sofia IA</p>",
                 unsafe_allow_html=True
             )
         with col_entrar:
