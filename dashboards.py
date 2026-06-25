@@ -85,13 +85,28 @@ def render_landing_page():
                 background-color: #09090b !important;
             }
             div[class*="st-key-barra_nav_landing"] {
-                background: #0d0d10;
-                border-bottom: 1px solid #1f1f24;
+                background:
+                    radial-gradient(circle at 15% 0%, rgba(124,58,237,0.22), transparent 60%),
+                    #0d0d10;
+                border-bottom: 1px solid rgba(124,58,237,0.25);
                 padding: 0.7rem 1.5rem;
                 margin-top: 0 !important;
             }
             div[class*="st-key-barra_nav_landing"] [data-testid="stVerticalBlock"] {
                 gap: 0 !important;
+            }
+            div[class*="st-key-barra_nav_landing"] button[kind="secondary"] {
+                background: transparent !important;
+                border: 1px solid #2a2a31 !important;
+                color: #d4d4d8 !important;
+            }
+            div[class*="st-key-barra_nav_landing"] button[kind="secondary"]:hover {
+                border-color: #7d33ff !important;
+                color: #c4b5fd !important;
+            }
+            div[class*="st-key-barra_nav_landing"] button[kind="primary"] {
+                background: linear-gradient(135deg, #7d33ff, #6425e0) !important;
+                border: none !important;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -116,29 +131,28 @@ def render_landing_page():
     with open(caminho_html, "r", encoding="utf-8") as f:
         html_bruto = f.read()
 
-    # A landing tem sua própria <nav> fixa e botões de CTA com IDs
-    # específicos (ver landing_page.html) que tentam navegar via
-    # JavaScript — isso é bloqueado pelo sandbox do iframe, então
-    # neutralizamos esses cliques aqui (os botões reais já estão na barra
-    # do Streamlit acima). Os links de âncora (#como-funciona, #precos
-    # etc.) continuam funcionando normalmente, pois são apenas rolagem
-    # dentro do próprio iframe.
+    # A landing tem botões de CTA com IDs específicos ('btn-login-nav',
+    # 'btn-cadastro-precos' etc.) que tentam navegar via JavaScript — isso
+    # é bloqueado pelo sandbox do iframe do Streamlit, então removemos
+    # apenas esses elementos quebrados (preservando os links de âncora
+    # #como-funciona, #recursos etc., que continuam funcionando — rolagem
+    # interna não é bloqueada pelo sandbox). Os botões de fato funcionais
+    # ficam na barra do Streamlit, fora deste iframe.
     html_ajustado = html_bruto.replace(
-        """  ['btn-login-nav','btn-login-footer','btn-cadastro-precos','btn-cadastro-final'].forEach(id => {
-    const el = document.getElementById(id);
-    if(el){
-      el.addEventListener('click', (e) => {
-        e.preventDefault();
-        window.location.href = URL_PAINEL_LOGIN;
-      });
-    }
-  });""",
-        """  // Botões de login/cadastro reais ficam na barra do Streamlit, fora
-  // deste iframe (o sandbox do Streamlit bloqueia navegação de topo a
-  // partir de dentro do iframe). Aqui dentro, apenas escondemos a nav
-  // fixa própria da landing para não duplicar com a barra do Streamlit.
-  const navOriginal = document.querySelector('nav');
-  if (navOriginal) navOriginal.style.display = 'none';"""
+        '<a href="#" class="btn btn-ghost" id="btn-login-nav">Entrar</a>',
+        ''
+    ).replace(
+        '<a href="#precos" class="btn btn-primary">Testar gratuito</a>',
+        ''
+    ).replace(
+        '<a href="#" class="btn btn-gold" id="btn-cadastro-precos">Criar minha conta</a>',
+        ''
+    ).replace(
+        '<a href="#" class="btn btn-primary" id="btn-cadastro-final">Criar minha conta gratuita</a>',
+        ''
+    ).replace(
+        '<a href="#" id="btn-login-footer">Entrar no painel</a>',
+        ''
     )
 
     components.html(html_ajustado, height=6400, scrolling=True)
